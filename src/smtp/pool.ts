@@ -40,7 +40,7 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
   private pendingDestroys = new Set<Promise<void>>()
   private totalConnections = 0
   private closed = false
-  private readonly poolId = createObservationId('smtp_pool')
+  private poolId?: string
   private readonly logger: Logger
 
   constructor(
@@ -120,11 +120,13 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     if (ready) {
       this.clearIdleTimer(ready)
       this.busy.add(ready)
-      this.emitPoolObservation('smtp.pool.connection.reused')
-      this.emitPoolObservation('smtp.pool.acquire.completed', {
-        durationMs: 0,
-        pool: this.poolSnapshot({ waitMs: 0 }),
-      })
+      if (this.hasObservation()) {
+        this.emitPoolObservation('smtp.pool.connection.reused')
+        this.emitPoolObservation('smtp.pool.acquire.completed', {
+          durationMs: 0,
+          pool: this.poolSnapshot({ waitMs: 0 }),
+        })
+      }
       return ready
     }
 
@@ -132,10 +134,12 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
       const startedAt = Date.now()
       const client = await this.createBusyClient()
       const waitMs = durationSince(startedAt)
-      this.emitPoolObservation('smtp.pool.acquire.completed', {
-        durationMs: waitMs,
-        pool: this.poolSnapshot({ waitMs }),
-      })
+      if (this.hasObservation()) {
+        this.emitPoolObservation('smtp.pool.acquire.completed', {
+          durationMs: waitMs,
+          pool: this.poolSnapshot({ waitMs }),
+        })
+      }
       return client
     }
 
@@ -144,10 +148,12 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
       this.waitQueue.push({ resolve, reject, startedAt })
     }).then(client => {
       const waitMs = durationSince(startedAt)
-      this.emitPoolObservation('smtp.pool.acquire.completed', {
-        durationMs: waitMs,
-        pool: this.poolSnapshot({ waitMs }),
-      })
+      if (this.hasObservation()) {
+        this.emitPoolObservation('smtp.pool.acquire.completed', {
+          durationMs: waitMs,
+          pool: this.poolSnapshot({ waitMs }),
+        })
+      }
       return client
     })
   }
@@ -171,7 +177,9 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     const waiter = this.waitQueue.shift()
     if (waiter) {
       this.busy.add(client)
-      this.emitPoolObservation('smtp.pool.connection.reused')
+      if (this.hasObservation()) {
+        this.emitPoolObservation('smtp.pool.connection.reused')
+      }
       waiter.resolve(client)
       return
     }
@@ -195,7 +203,9 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
       const client = this.ready.shift()!
       this.clearIdleTimer(client)
       this.busy.add(client)
-      this.emitPoolObservation('smtp.pool.connection.reused')
+      if (this.hasObservation()) {
+        this.emitPoolObservation('smtp.pool.connection.reused')
+      }
       waiter.resolve(client)
     }
 
@@ -233,7 +243,9 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
         throw new Error('SMTP connection pool is closed')
       }
       this.busy.add(client)
-      this.emitPoolObservation('smtp.pool.connection.created')
+      if (this.hasObservation()) {
+        this.emitPoolObservation('smtp.pool.connection.created')
+      }
       return client
     } catch (error) {
       if (!destroyOwnsConnection) {
@@ -278,7 +290,9 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
       // Closing an already-failed SMTP connection should not mask send results.
     }
     this.totalConnections = Math.max(0, this.totalConnections - 1)
-    this.emitPoolObservation('smtp.pool.connection.closed')
+    if (this.hasObservation()) {
+      this.emitPoolObservation('smtp.pool.connection.closed')
+    }
   }
 
   private async waitForDrained() {
@@ -309,7 +323,7 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
         type,
         status: 'completed',
         runtime: this.runtimeName,
-        sessionId: this.poolId,
+        sessionId: this.getPoolId(),
         timestamp: new Date().toISOString(),
         pool: this.poolSnapshot(),
         ...event,
@@ -318,6 +332,15 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
       const message = error instanceof Error ? error.message : String(error)
       this.logger.warn('Observation handler failed: ' + message)
     }
+  }
+
+  private hasObservation() {
+    return Boolean(this.options.observation?.onEvent)
+  }
+
+  private getPoolId() {
+    this.poolId ||= createObservationId('smtp_pool')
+    return this.poolId
   }
 
   private poolSnapshot(extra: MailObservationEvent['pool'] = {}) {

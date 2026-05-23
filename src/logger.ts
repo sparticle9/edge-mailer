@@ -17,26 +17,30 @@ export default class Logger {
     this.prefix = prefix
   }
 
+  isEnabled(level: LogLevel): boolean {
+    return this.level <= level
+  }
+
   debug(message: string, ...args: any[]): void {
-    if (this.level <= LogLevel.DEBUG) {
+    if (this.isEnabled(LogLevel.DEBUG)) {
       console.debug(this.prefix + message, ...args)
     }
   }
 
   info(message: string, ...args: any[]): void {
-    if (this.level <= LogLevel.INFO) {
+    if (this.isEnabled(LogLevel.INFO)) {
       console.info(this.prefix + message, ...args)
     }
   }
 
   warn(message: string, ...args: any[]): void {
-    if (this.level <= LogLevel.WARN) {
+    if (this.isEnabled(LogLevel.WARN)) {
       console.warn(this.prefix + message, ...args)
     }
   }
 
   error(message: string, ...args: any[]): void {
-    if (this.level <= LogLevel.ERROR) {
+    if (this.isEnabled(LogLevel.ERROR)) {
       console.error(this.prefix + message, ...args)
     }
   }

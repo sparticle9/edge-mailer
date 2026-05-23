@@ -64,6 +64,22 @@ export type SmtpSendReceipt = {
 export type SmtpSendReceiptJson = Omit<SmtpSendReceipt, 'toJSON'>
 /** Ordered result list returned by `sendBatch()` and `sendMany()`. */
 export type BatchSendResult = PromiseSettledResult<SmtpSendReceipt>[]
+
+function smtpSendReceiptToJson(this: SmtpSendReceipt): SmtpSendReceiptJson {
+  return {
+    attemptId: this.attemptId,
+    messageId: this.messageId,
+    envelope: this.envelope,
+    accepted: this.accepted,
+    rejected: this.rejected,
+    response: this.response,
+    responseCode: this.responseCode,
+    enhancedStatusCode: this.enhancedStatusCode,
+    size: this.size,
+    durationMs: this.durationMs,
+  }
+}
+
 /** SMTP PIPELINING behavior. */
 export type PipeliningMode = 'auto' | false
 /** SMTP message body encoding advertised in MAIL FROM. */
@@ -407,7 +423,7 @@ export class SmtpMailer {
   private readonly logger: Logger
   private readonly runtimeName: string
   private readonly observation?: MailObservationOptions
-  private readonly sessionId = createObservationId('smtp_session')
+  private sessionId?: string
 
   private readonly dsn: DsnOptions | undefined
   private readonly dkim: DkimConfig | undefined
@@ -546,17 +562,17 @@ export class SmtpMailer {
     event: Partial<MailObservationEvent> &
       Pick<MailObservationEvent, 'status'> = { status: 'completed' },
   ) {
-    const onEvent = this.observation?.onEvent
-    if (!onEvent) {
+    if (!this.hasObservation()) {
       return
     }
+    const onEvent = this.observation?.onEvent
 
     const includeTranscript = this.observation?.mode === 'transcript'
     const observed: MailObservationEvent = {
       version: 1,
       type,
       runtime: this.runtimeName,
-      sessionId: this.sessionId,
+      sessionId: this.getSessionId(),
       timestamp: event.timestamp || new Date().toISOString(),
       ...event,
       status: event.status,
@@ -571,11 +587,16 @@ export class SmtpMailer {
     }
 
     try {
-      onEvent(observed)
+      onEvent?.(observed)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.logger.warn('Observation handler failed: ' + message)
     }
+  }
+
+  private getSessionId() {
+    this.sessionId ||= createObservationId('smtp_session')
+    return this.sessionId
   }
 
   private emitStageObservation(
@@ -585,6 +606,9 @@ export class SmtpMailer {
     status: MailObservationStatus = 'completed',
     event: Partial<MailObservationEvent> = {},
   ) {
+    if (!this.hasObservation()) {
+      return
+    }
     this.emitObservation(type, {
       stage,
       status,
@@ -616,6 +640,10 @@ export class SmtpMailer {
 
     const message = error instanceof Error ? error.message : String(error)
     return classifyMailFailure({ stage: 'send', message })
+  }
+
+  private hasObservation() {
+    return Boolean(this.observation?.onEvent)
   }
 
   protected async initializeSmtpSession() {
@@ -879,7 +907,9 @@ export class SmtpMailer {
         continue
       }
       const data = decode(value).toString()
-      this.logger.debug('SMTP server response:\n' + redactSmtpResponse(data))
+      if (this.logger.isEnabled(LogLevel.DEBUG)) {
+        this.logger.debug('SMTP server response:\n' + redactSmtpResponse(data))
+      }
       this.responseBuffer = this.responseBuffer + data
       const response = this.shiftResponse()
       if (response) {
@@ -912,7 +942,9 @@ export class SmtpMailer {
   }
 
   private async write(data: string, debugData = data) {
-    this.logger.debug('Write to socket:\n' + redactSmtpCommand(debugData))
+    if (this.logger.isEnabled(LogLevel.DEBUG)) {
+      this.logger.debug('Write to socket:\n' + redactSmtpCommand(debugData))
+    }
     await this.writer.write(encode(data))
   }
 
@@ -1510,20 +1542,7 @@ export class SmtpMailer {
       enhancedStatusCode: this.enhancedStatusCode(response),
       size: prepared.size,
       durationMs,
-      toJSON() {
-        return {
-          attemptId: this.attemptId,
-          messageId: this.messageId,
-          envelope: this.envelope,
-          accepted: this.accepted,
-          rejected: this.rejected,
-          response: this.response,
-          responseCode: this.responseCode,
-          enhancedStatusCode: this.enhancedStatusCode,
-          size: this.size,
-          durationMs: this.durationMs,
-        }
-      },
+      toJSON: smtpSendReceiptToJson,
     }
     return receipt
   }
