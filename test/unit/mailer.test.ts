@@ -1458,6 +1458,33 @@ describe('EdgeMailer', () => {
   })
 
   describe('observation', () => {
+    it('classifies generic connector failures by the active stage', async () => {
+      const events: MailObservationEvent[] = []
+      ;(connect as any).mockImplementationOnce(() => {
+        throw new Error('dial refused')
+      })
+
+      await expect(
+        EdgeMailer.connect({
+          host: 'smtp.example.com',
+          port: 587,
+          logLevel: LogLevel.NONE,
+          observation: {
+            onEvent: event => events.push(event),
+          },
+        }),
+      ).rejects.toThrow('dial refused')
+
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        type: 'smtp.connect.completed',
+        status: 'failed',
+        reason: 'connect_failed',
+        retryHint: 'retry',
+        nextAction: 'retry',
+      })
+    })
+
     it('emits ordered SMTP lifecycle events for a STARTTLS send', async () => {
       const events: MailObservationEvent[] = []
       mockReader.read

@@ -617,7 +617,7 @@ export class SmtpMailer {
     })
   }
 
-  private failureEvent(error: unknown): Pick<
+  private failureEvent(stage: SMTPStage, error: unknown): Pick<
     MailObservationEvent,
     'reason' | 'retryHint' | 'nextAction'
   > & {
@@ -639,7 +639,7 @@ export class SmtpMailer {
     }
 
     const message = error instanceof Error ? error.message : String(error)
-    return classifyMailFailure({ stage: 'send', message })
+    return classifyMailFailure({ stage, message })
   }
 
   private hasObservation() {
@@ -662,7 +662,7 @@ export class SmtpMailer {
         'connect',
         connectStartedAt,
         'failed',
-        this.failureEvent(error),
+        this.failureEvent('connect', error),
       )
       throw error
     }
@@ -721,7 +721,7 @@ export class SmtpMailer {
             attemptId,
             acceptedCount: transaction.accepted.length,
             rejectedCount: transaction.rejected.length,
-            ...this.failureEvent(error),
+            ...this.failureEvent('rcpt', error),
           },
         )
         throw error
@@ -753,7 +753,7 @@ export class SmtpMailer {
           'failed',
           {
             attemptId,
-            ...this.failureEvent(error),
+            ...this.failureEvent('data', error),
           },
         )
         throw error
@@ -825,7 +825,7 @@ export class SmtpMailer {
         'failed',
         {
           attemptId,
-          ...this.failureEvent(sendError),
+          ...this.failureEvent('send', sendError),
         },
       )
       throw sendError
@@ -1039,7 +1039,7 @@ export class SmtpMailer {
         'greet',
         startedAt,
         'failed',
-        this.failureEvent(error),
+        this.failureEvent('greet', error),
       )
       throw error
     }
@@ -1094,7 +1094,7 @@ export class SmtpMailer {
         'ehlo',
         startedAt,
         'failed',
-        this.failureEvent(error),
+        this.failureEvent('ehlo', error),
       )
       throw error
     }
@@ -1160,7 +1160,7 @@ export class SmtpMailer {
         'starttls',
         startedAt,
         'failed',
-        this.failureEvent(error),
+        this.failureEvent('starttls', error),
       )
       throw error
     }
@@ -1298,7 +1298,7 @@ export class SmtpMailer {
         'auth',
         startedAt,
         'failed',
-        this.failureEvent(error),
+        this.failureEvent('auth', error),
       )
       throw error
     }
@@ -1605,7 +1605,7 @@ export class SmtpMailer {
         'rset',
         startedAt,
         'failed',
-        this.failureEvent(error),
+        this.failureEvent('rset', error),
       )
       throw error
     }
