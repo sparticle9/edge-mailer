@@ -55,6 +55,28 @@ Both guides keep credentials in ignored local files and upload SMTP credentials
 as runtime secrets. Do not put SMTP passwords, API tokens, or DKIM private keys
 in source files or committed config.
 
+## Optional DSN Smoke Capture
+
+Live smokes can request SMTP Delivery Status Notifications when the configured
+server advertises `DSN`:
+
+```sh
+SMTP_SMOKE_DSN=1 pnpm run test:smoke:smtp
+SMTP_SMOKE_DSN=1 pnpm run test:smoke:cloudflare
+SMTP_SMOKE_DSN=1 pnpm run test:smoke:deno
+```
+
+When enabled, the smoke adds a unique `ENVID`, requests `RET=HDRS` and
+`NOTIFY=SUCCESS,FAILURE,DELAY`, and writes a JSON capture under
+`smoke-artifacts/` by default. The capture records SMTP acceptance, generated
+message IDs, requested DSN options, and whether observation saw the server
+advertise `DSN`. It does not poll a mailbox, receive webhooks, or prove inbox
+placement.
+
+Set `SMTP_SMOKE_DSN_OUTPUT=/path/to/file.json` to choose a capture path. A later
+GitHub Actions smoke workflow can upload this JSON as an artifact once live SMTP
+secrets are configured for CI.
+
 ## Expected Smoke Emails
 
 | Smoke command                                               | Expected emails                                                                                                                                                             |

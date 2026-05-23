@@ -56,6 +56,28 @@ imports, SMTP options, envelope/DSN usage, and real-server functional
 verification. See [DEVELOPMENT.md](DEVELOPMENT.md) for local checks, smoke
 testing, runtime samples, and reporting guidance.
 
+## Smoke And DSN Evidence
+
+Runtime smokes verify SMTP server acceptance, not inbox placement. Enable
+best-effort DSN capture when you want a machine-readable artifact from live
+smokes:
+
+```sh
+SMTP_SMOKE_DSN=1 pnpm run test:smoke:cloudflare
+SMTP_SMOKE_DSN=1 pnpm run test:smoke:deno
+```
+
+The smoke requests `RET=HDRS` and `NOTIFY=SUCCESS,FAILURE,DELAY` with a unique
+`ENVID`, then writes JSON under `smoke-artifacts/` by default. The artifact
+includes the generated `ENVID`, accepted/rejected recipients, response code,
+attempt duration, message id, observed EHLO capabilities, and whether the SMTP
+server advertised `DSN`.
+
+If the server does not advertise `DSN`, Edge Mailer still sends normally and
+records `dsnAdvertised: false`; it does not force unsupported SMTP extension
+parameters. DSN capture does not run a mailbox poller, webhook receiver, bounce
+normalizer, or inbox-placement check.
+
 ## Runtime Entrypoints
 
 Use the default import or Cloudflare subpath for Cloudflare Workers:

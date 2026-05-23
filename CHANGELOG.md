@@ -6,6 +6,9 @@
   attempt IDs, and JSON-safe receipt/error output.
 - Add compact failure reasons, retry hints, and next-action metadata for SMTP
   errors.
+- Add opt-in DSN capture for live smoke scripts. Smokes can request DSN,
+  record SMTP acceptance and observed server capabilities, and write a local
+  JSON artifact without adding mailbox polling or webhook receivers.
 - Keep disabled observation lightweight with lazy session/pool IDs and no
   telemetry backend dependency.
 

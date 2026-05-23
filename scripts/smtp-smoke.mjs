@@ -2,6 +2,14 @@
 
 import { spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
+import {
+  applySmokeDsnObservation,
+  applySmokeDsnResult,
+  createSmokeDsnCapture,
+  createSmokeDsnRequest,
+  mergeSmokeHeaders,
+  writeSmokeDsnCapture,
+} from './smoke-dsn.mjs'
 
 const workerPort = Number(process.env.SMTP_SMOKE_WORKER_PORT || 8788)
 const baseUrl = `http://127.0.0.1:${workerPort}`
@@ -98,6 +106,7 @@ function emailBase(env, subject) {
 
 async function main() {
   const env = { ...process.env }
+  const dsnCapture = createSmokeDsnCapture('cloudflare-local', env)
   const username = env.SMTP_USERNAME || env.SMTP_USER
   env.SMTP_USERNAME = username
   required(env, ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD'])
@@ -140,6 +149,11 @@ async function main() {
   try {
     await waitForWorker(wrangler)
 
+    const emailWithDsn = (label, index, email) => {
+      const dsnRequest = createSmokeDsnRequest(dsnCapture, label, index)
+      return mergeSmokeHeaders(email, dsnRequest)
+    }
+
     const scenarios = [
       {
         name: '587 STARTTLS batch',
@@ -147,16 +161,17 @@ async function main() {
           mode: 'batch',
           config: scenarioConfig(env, 587),
           continueOnError: true,
+          captureObservation: Boolean(dsnCapture),
           emails: [
-            {
+            emailWithDsn('587 text', 0, {
               ...emailBase(env, '587 text'),
               text: 'SMTP smoke over port 587 with STARTTLS.',
-            },
-            {
+            }),
+            emailWithDsn('587 html', 1, {
               ...emailBase(env, '587 html'),
               text: 'SMTP smoke over port 587 with STARTTLS and HTML.',
               html: '<p>SMTP smoke over <strong>port 587</strong> with STARTTLS and HTML.</p>',
-            },
+            }),
           ],
         },
       },
@@ -166,8 +181,9 @@ async function main() {
           mode: 'sendMany',
           config: scenarioConfig(env, 465),
           continueOnError: true,
+          captureObservation: Boolean(dsnCapture),
           emails: [
-            {
+            emailWithDsn('465 attachment', 2, {
               ...emailBase(env, '465 attachment'),
               text: 'SMTP smoke over port 465 with implicit TLS and a small attachment.',
               attachments: [
@@ -180,7 +196,7 @@ async function main() {
                   mimeType: 'text/plain',
                 },
               ],
-            },
+            }),
           ],
         },
       },
@@ -198,10 +214,29 @@ async function main() {
             `${scenario.name} had rejected sends: ${JSON.stringify(failed)}`,
           )
         }
+        if (dsnCapture) {
+          result.results.forEach((item, index) => {
+            if (item.status === 'fulfilled') {
+              const captureIndex =
+                scenario.name === '465 TLS sendMany attachment'
+                  ? 2 + index
+                  : index
+              applySmokeDsnResult(dsnCapture.requests[captureIndex], item)
+            }
+          })
+        }
+      } else if (dsnCapture) {
+        applySmokeDsnResult(dsnCapture.requests[0], result)
       }
+      applySmokeDsnObservation(dsnCapture, result.observation)
       process.stdout.write('ok\n')
     }
+    await writeSmokeDsnCapture(dsnCapture)
   } catch (error) {
+    if (dsnCapture) {
+      dsnCapture.error = error instanceof Error ? error.message : String(error)
+      await writeSmokeDsnCapture(dsnCapture)
+    }
     console.error(error instanceof Error ? error.message : String(error))
     if (wranglerOutput.trim()) {
       console.error('Recent wrangler output:')

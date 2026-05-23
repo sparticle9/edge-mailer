@@ -68,6 +68,16 @@ Expected email:
 The local smoke sends text, HTML, custom headers, and
 `edge-mailer-sample.txt` as a raw-byte attachment through a bounded pool.
 
+To request and capture SMTP DSN evidence during the local smoke:
+
+```sh
+SMTP_SMOKE_DSN=1 pnpm run test:smoke:cloudflare
+```
+
+This writes a JSON capture under `smoke-artifacts/` by default. The capture
+records the generated `ENVID`, requested `RET/NOTIFY` values, SMTP acceptance,
+and whether observation saw the server advertise `DSN`.
+
 ## Deploy
 
 ```sh
@@ -147,6 +157,8 @@ Expected live smoke emails:
 
 SMTP acceptance means the provider accepted the message. Inbox placement still
 depends on provider queueing, sender policy, spam filtering, and mailbox rules.
+DSN smoke capture is best-effort evidence only; it does not run a webhook or
+mailbox receiver.
 
 ## Notes
 

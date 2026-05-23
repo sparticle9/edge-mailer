@@ -3,6 +3,7 @@ import { LogLevel } from '../../src/logger'
 import {
   EdgeMailer,
   type EdgeMailerOptions,
+  type MailObservationEvent,
   type SmtpSendReceipt,
 } from '../../src/mailer'
 
@@ -11,12 +12,14 @@ type SmokeRequest =
       mode?: 'send'
       config: EdgeMailerOptions
       email: EmailOptions
+      captureObservation?: boolean
     }
   | {
       mode: 'batch' | 'sendMany'
       config: EdgeMailerOptions
       emails: EmailOptions[]
       continueOnError?: boolean
+      captureObservation?: boolean
     }
 
 function receiptToJson(receipt: SmtpSendReceipt) {
@@ -25,6 +28,8 @@ function receiptToJson(receipt: SmtpSendReceipt) {
     accepted: receipt.accepted,
     rejected: receipt.rejected,
     responseCode: receipt.responseCode,
+    attemptId: receipt.attemptId,
+    durationMs: receipt.durationMs,
   }
 }
 
@@ -58,40 +63,60 @@ export default {
         body.config.logLevel === undefined
           ? LogLevel.NONE
           : body.config.logLevel
+      const observationEvents: MailObservationEvent[] = []
+      const config: EdgeMailerOptions = {
+        ...body.config,
+        logLevel,
+        observation: body.captureObservation
+          ? {
+              mode: 'summary',
+              onEvent(event) {
+                observationEvents.push(event)
+              },
+            }
+          : body.config.observation,
+      }
 
       if (body.mode === 'batch') {
-        const results = await EdgeMailer.sendBatch(
-          { ...body.config, logLevel },
-          body.emails,
-          { continueOnError: body.continueOnError },
-        )
-        return Response.json({ ok: true, results: results.map(resultToJson) })
+        const results = await EdgeMailer.sendBatch(config, body.emails, {
+          continueOnError: body.continueOnError,
+        })
+        return Response.json({
+          ok: true,
+          results: results.map(resultToJson),
+          observation: body.captureObservation
+            ? { events: observationEvents }
+            : undefined,
+        })
       }
 
       if (body.mode === 'sendMany') {
-        const mailer = await EdgeMailer.connect({
-          ...body.config,
-          logLevel,
-        })
+        const mailer = await EdgeMailer.connect(config)
         try {
           const results = await mailer.sendMany(body.emails, {
             continueOnError: body.continueOnError,
           })
-          return Response.json({ ok: true, results: results.map(resultToJson) })
+          return Response.json({
+            ok: true,
+            results: results.map(resultToJson),
+            observation: body.captureObservation
+              ? { events: observationEvents }
+              : undefined,
+          })
         } finally {
           await mailer.close()
         }
       }
 
-      const receipt = await EdgeMailer.send(
-        {
-          ...body.config,
-          logLevel,
-        },
-        body.email,
-      )
+      const receipt = await EdgeMailer.send(config, body.email)
 
-      return Response.json({ ok: true, receipt: receiptToJson(receipt) })
+      return Response.json({
+        ok: true,
+        receipt: receiptToJson(receipt),
+        observation: body.captureObservation
+          ? { events: observationEvents }
+          : undefined,
+      })
     } catch (error) {
       if (error instanceof Error) {
         return Response.json(

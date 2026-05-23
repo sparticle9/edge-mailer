@@ -5,6 +5,7 @@ import {
   type DkimConfig,
   type EdgeMailerOptions,
   type EmailOptions,
+  type MailObservationEvent,
 } from '../../../src/cloudflare'
 
 type Env = {
@@ -106,6 +107,8 @@ function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
       'X-Edge-Mailer-Sample': marker,
       ...body.headers,
     },
+    envelope: body.envelope,
+    dsnOverride: body.dsnOverride,
     attachments: body.attachments || [
       {
         filename: 'edge-mailer-sample.txt',
@@ -157,9 +160,21 @@ export default {
 
     const body = (await request
       .json()
-      .catch(() => ({}))) as Partial<EmailOptions>
+      .catch(() => ({}))) as Partial<EmailOptions> & {
+      captureObservation?: boolean
+    }
     const email = sampleEmail(env, body)
-    const pool = EdgeMailer.createPool(smtpConfig(env))
+    const observationEvents: MailObservationEvent[] = []
+    const config = smtpConfig(env)
+    if (body.captureObservation) {
+      config.observation = {
+        mode: 'summary',
+        onEvent(event) {
+          observationEvents.push(event)
+        },
+      }
+    }
+    const pool = EdgeMailer.createPool(config)
     try {
       const receipt = await pool.send(email)
       return Response.json({
@@ -167,7 +182,14 @@ export default {
         accepted: true,
         subject: email.subject,
         messageId: receipt.messageId,
+        attemptId: receipt.attemptId,
+        durationMs: receipt.durationMs,
         recipients: receipt.accepted,
+        rejected: receipt.rejected,
+        responseCode: receipt.responseCode,
+        observation: body.captureObservation
+          ? { events: observationEvents }
+          : undefined,
       })
     } finally {
       await pool.close()

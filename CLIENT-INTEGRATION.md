@@ -320,7 +320,8 @@ size. Otherwise the client computes `SIZE` from the encoded message it sends.
 ## DSN Options
 
 Set session defaults with `config.dsn` and override per message with
-`dsnOverride`.
+`dsnOverride`. Edge Mailer only sends DSN SMTP parameters when the server
+advertises the `DSN` extension during EHLO.
 
 ```ts
 const config = {
@@ -349,6 +350,12 @@ await EdgeMailer.send(config, {
 ```
 
 `ORCPT` values without an address type are sent as `rfc822;<address>`.
+
+DSN is a request to the configured SMTP server. It is not the same as inbox
+placement proof, open/click tracking, provider webhooks, or bounce/complaint
+normalization. For live smoke evidence, set `SMTP_SMOKE_DSN=1` on the sample
+smoke commands; the generated JSON artifact records the requested DSN metadata,
+SMTP acceptance result, observed capabilities, and whether `DSN` was advertised.
 
 ## Error Handling
 

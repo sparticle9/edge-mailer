@@ -4,6 +4,14 @@ import { spawn } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import {
+  applySmokeDsnObservation,
+  applySmokeDsnResult,
+  createSmokeDsnCapture,
+  createSmokeDsnRequest,
+  mergeSmokeHeaders,
+  writeSmokeDsnCapture,
+} from '../../scripts/smoke-dsn.mjs'
 
 const sampleDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(sampleDir, '../..')
@@ -93,11 +101,11 @@ async function waitForWorker(child) {
   throw new Error('Timed out waiting for wrangler dev')
 }
 
-async function postSmoke() {
+async function postSmoke(body) {
   const response = await fetch(baseUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(body),
   })
   const text = await response.text()
   let payload
@@ -116,6 +124,7 @@ async function postSmoke() {
 
 async function main() {
   const vars = collectVars()
+  const dsnCapture = createSmokeDsnCapture('cloudflare-sample', process.env)
   const wranglerArgs = [
     'exec',
     'wrangler',
@@ -150,11 +159,28 @@ async function main() {
 
   try {
     await waitForWorker(wrangler)
-    const result = await postSmoke()
+    const dsnRequest = createSmokeDsnRequest(dsnCapture, 'cloudflare sample')
+    const result = await postSmoke(
+      mergeSmokeHeaders(
+        {
+          captureObservation: Boolean(dsnCapture),
+        },
+        dsnRequest,
+      ),
+    )
+    if (dsnCapture) {
+      applySmokeDsnResult(dsnCapture.requests[0], result)
+      applySmokeDsnObservation(dsnCapture, result.observation)
+      await writeSmokeDsnCapture(dsnCapture)
+    }
     console.log(
       `Cloudflare Worker SMTP smoke accepted by SMTP server: ${result.subject} ${result.messageId}`,
     )
   } catch (error) {
+    if (dsnCapture) {
+      dsnCapture.error = error instanceof Error ? error.message : String(error)
+      await writeSmokeDsnCapture(dsnCapture)
+    }
     console.error(error instanceof Error ? error.message : String(error))
     if (wranglerOutput.trim()) {
       console.error('Recent wrangler output:')

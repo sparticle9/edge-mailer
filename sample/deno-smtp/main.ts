@@ -5,6 +5,7 @@ import {
   type DkimConfig,
   type EdgeMailerOptions,
   type EmailOptions,
+  type MailObservationEvent,
 } from '../../src/deno.ts'
 
 function env(name: string): string | undefined {
@@ -87,6 +88,8 @@ function sampleEmail(body: Partial<EmailOptions> = {}): EmailOptions {
       'X-Edge-Mailer-Sample': 'deno',
       ...body.headers,
     },
+    envelope: body.envelope,
+    dsnOverride: body.dsnOverride,
     attachments: body.attachments || [
       {
         filename: 'edge-mailer-sample.txt',
@@ -130,9 +133,23 @@ Deno.serve(async request => {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = (await request.json().catch(() => ({}))) as Partial<EmailOptions>
+  const body = (await request
+    .json()
+    .catch(() => ({}))) as Partial<EmailOptions> & {
+    captureObservation?: boolean
+  }
   const email = sampleEmail(body)
-  const pool = DenoMailer.createPool(smtpConfig())
+  const observationEvents: MailObservationEvent[] = []
+  const config = smtpConfig()
+  if (body.captureObservation) {
+    config.observation = {
+      mode: 'summary',
+      onEvent(event) {
+        observationEvents.push(event)
+      },
+    }
+  }
+  const pool = DenoMailer.createPool(config)
   try {
     const receipt = await pool.send(email)
     return Response.json({
@@ -140,7 +157,14 @@ Deno.serve(async request => {
       accepted: true,
       subject: email.subject,
       messageId: receipt.messageId,
+      attemptId: receipt.attemptId,
+      durationMs: receipt.durationMs,
       recipients: receipt.accepted,
+      rejected: receipt.rejected,
+      responseCode: receipt.responseCode,
+      observation: body.captureObservation
+        ? { events: observationEvents }
+        : undefined,
     })
   } finally {
     await pool.close()
