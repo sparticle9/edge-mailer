@@ -1,4 +1,4 @@
-import { encode, encodeQuotedPrintable } from './utils'
+import { encode, encodeQuotedPrintable } from './utils.ts'
 
 export function encodeHeader(text: string): string {
   // If the text contains any non-ASCII characters, encode the whole string

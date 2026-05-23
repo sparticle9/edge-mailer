@@ -1,0 +1,30 @@
+{
+  "exclude": [
+    "**/.*/**",
+    "dist",
+    "node_modules",
+    "prettier.config.js",
+    "sample/cloudflare-worker-smtp",
+    "scripts",
+    "src/cloudflare.ts",
+    "src/index.ts",
+    "src/mailer.ts",
+    "src/runtime/cloudflare.ts",
+    "test/src",
+    "test/worker.ts",
+    "tsup.config.ts",
+    "vitest.config.mts"
+  ],
+  "tasks": {
+    "check": "deno check src/deno.ts sample/deno-smtp/main.ts sample/deno-smtp/smoke.ts test/deno/deno-connector.test.ts",
+    "test": "deno test test/deno",
+    "smoke:deno": "deno run --allow-net --allow-env sample/deno-smtp/smoke.ts",
+    "serve:deno": "deno run --allow-net --allow-env sample/deno-smtp/main.ts"
+  },
+  "imports": {
+    "edge-mailer/deno": "./src/deno.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom", "dom.iterable", "esnext"]
+  }
+}

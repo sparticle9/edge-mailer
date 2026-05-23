@@ -8,4 +8,8 @@ export default defineConfig({
       main: './test/worker.ts',
     }),
   ],
+  test: {
+    include: ['test/src/**/*.test.ts'],
+    exclude: ['test/deno/**'],
+  },
 })

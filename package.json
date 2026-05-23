@@ -2,7 +2,7 @@
   "name": "edge-mailer",
   "version": "0.0.0",
   "private": true,
-  "description": "Cloudflare Workers SMTP submission toolkit for serverless applications.",
+  "description": "SMTP submission toolkit for edge and serverless runtimes.",
   "license": "MIT",
   "packageManager": "pnpm@11.1.2",
   "main": "./dist/index.js",
@@ -13,6 +13,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare.d.ts",
+      "import": "./dist/cloudflare.mjs",
+      "require": "./dist/cloudflare.js"
+    },
+    "./deno": {
+      "types": "./dist/deno.d.ts",
+      "import": "./dist/deno.mjs",
+      "require": "./dist/deno.js"
     }
   },
   "files": [
@@ -24,6 +34,7 @@
     "cloudflare",
     "workers",
     "cloudflare-workers",
+    "deno",
     "email",
     "smtp",
     "serverless"
@@ -31,6 +42,9 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest",
+    "test:deno": "deno task test",
+    "check:deno": "deno task check",
+    "test:smoke:deno": "direnv exec . deno task smoke:deno",
     "test:smoke:smtp": "node scripts/smtp-smoke.mjs",
     "format": "prettier '**/*.{json,ts,js,cjs,mjs,md}' --write --ignore-path .gitignore"
   },

@@ -13,7 +13,7 @@ Edge Mailer uses Workers-native APIs and does not require `nodejs_compat`.
 Use `EdgeMailer` from a Cloudflare Worker:
 
 ```ts
-import { EdgeMailer } from 'edge-mailer'
+import { EdgeMailer } from 'edge-mailer/cloudflare'
 
 export default {
   async fetch() {
@@ -43,10 +43,36 @@ export default {
 }
 ```
 
+Use `DenoMailer` from Deno:
+
+```ts
+import { DenoMailer } from 'edge-mailer/deno'
+
+await DenoMailer.send(
+  {
+    host: 'smtp.example.com',
+    port: 587,
+    secure: false,
+    startTls: true,
+    credentials: {
+      username: 'sender@example.com',
+      password: 'smtp-password',
+    },
+    authType: ['plain', 'login'],
+  },
+  {
+    from: 'sender@example.com',
+    to: 'recipient@example.net',
+    subject: 'SMTP from Deno',
+    text: 'Hello from Edge Mailer.',
+  },
+)
+```
+
 For Queue consumers or scheduled jobs, reuse one SMTP session per invocation:
 
 ```ts
-import { EdgeMailer, type EmailOptions } from 'edge-mailer'
+import { EdgeMailer, type EmailOptions } from 'edge-mailer/cloudflare'
 
 type Env = {
   SMTP_HOST: string
@@ -92,7 +118,7 @@ export default {
 SMTP failures throw `SMTPError` when the error came from the SMTP session.
 
 ```ts
-import { EdgeMailer, SMTPError } from 'edge-mailer'
+import { EdgeMailer, SMTPError } from 'edge-mailer/cloudflare'
 
 try {
   await EdgeMailer.send(config, email)
@@ -124,6 +150,15 @@ Run the unit tests:
 pnpm test -- --run
 ```
 
+Run Deno checks:
+
+```sh
+deno check
+deno test
+```
+
+The same checks are available through `deno task check` and `deno task test`.
+
 Build the package:
 
 ```sh
@@ -136,9 +171,38 @@ Format the repo:
 pnpm run format
 ```
 
+## Runtime Samples
+
+Samples live under `sample/`.
+
+Run the Cloudflare Worker sample from the repo root:
+
+```sh
+direnv exec . pnpm exec wrangler dev --config sample/cloudflare-worker-smtp/wrangler.toml --local
+```
+
+Run the Deno direct SMTP smoke from the repo root:
+
+```sh
+direnv exec . deno task smoke:deno
+```
+
+Run the Deno HTTP sample locally:
+
+```sh
+direnv exec . deno task serve:deno
+```
+
+Deno Deploy v2 must use the current `deno deploy` CLI. Deploy v2 runs the
+standard Deno runtime with `--allow-all`; custom Deno runtime flags cannot be
+passed. Deno Deploy support remains experimental until the deployed sample sends
+through real SMTP credentials.
+
 ## SMTP Smoke
 
-Create `test/env.smtp-smoke` locally. The file is ignored by git.
+Create `test/env.smtp-smoke` locally for the Cloudflare smoke harness. The file
+is ignored by git. For Deno and deploy smokes, put credentials in local `.env`
+and run commands through `direnv exec .`.
 
 ```env
 SMTP_HOST=smtp.example.com
