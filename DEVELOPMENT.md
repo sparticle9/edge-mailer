@@ -206,9 +206,8 @@ triggered by publishing a GitHub Release with the matching tag, for example
 
 Before the first JSR publish, create the `@sparticle9/edge-mailer` package on
 JSR and link it to `sparticle9/edge-mailer` for GitHub Actions OIDC. Before the
-first npm publish, configure the `NPM_TOKEN` GitHub secret. After `0.6.0` is
-published, configure npm trusted publishing for `.github/workflows/publish.yml`
-and remove token-based publishing.
+first npm publish, configure npm trusted publishing for `sparticle9/edge-mailer`
+and `.github/workflows/publish.yml`; no npm token secret is used.
 
 ## Test Layout
 
