@@ -1,8 +1,7 @@
 # Client Integration
 
 Edge Mailer exposes one SMTP client API with runtime-specific entrypoints.
-Cloudflare Workers and Deno are both first-class edge runtimes. Cloudflare
-Workers was implemented first; it is not a priority tier over Deno.
+Cloudflare Workers and Deno are both first-class edge runtimes.
 
 ## Runtime Imports
 
@@ -23,6 +22,10 @@ The default package entrypoint remains Cloudflare-compatible:
 ```ts
 import { EdgeMailer } from 'edge-mailer'
 ```
+
+The default npm entrypoint imports `cloudflare:sockets`, so it is not intended
+to load directly in plain Node.js. Use a runtime-specific subpath for non-
+Cloudflare environments.
 
 ## Minimal Send
 

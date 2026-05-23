@@ -4,9 +4,7 @@ Edge Mailer is a serverless SMTP submission toolkit for applications that need
 to send through existing SMTP infrastructure from modern edge runtimes.
 
 The current implementation supports Cloudflare Workers and Deno as first-class
-edge runtimes. Cloudflare Workers was the first runtime implemented, but it is
-not a priority tier over Deno. The public API is versioned as a `0.x`
-prerelease surface.
+edge runtimes. The public API is versioned as a `0.x` prerelease surface.
 
 Install from npm for Cloudflare Workers and Node-compatible build pipelines:
 
@@ -62,6 +60,9 @@ Use the default import or Cloudflare subpath for Cloudflare Workers:
 import { EdgeMailer } from 'edge-mailer/cloudflare'
 ```
 
+The default npm entrypoint is Cloudflare-compatible and imports
+`cloudflare:sockets`; it is not intended to load directly in plain Node.js.
+
 Use the Deno subpath for Deno:
 
 ```ts
@@ -94,10 +95,9 @@ Runnable samples and deploy quickstarts live in [sample](sample):
 
 ## Roadmap
 
-Cloudflare Workers and Deno are both first-class edge runtimes. Cloudflare
-Workers was implemented first; future work should keep both runtimes aligned
-unless a runtime-specific platform limit is documented. The next useful work is
-grouped by product risk:
+Cloudflare Workers and Deno are both first-class edge runtimes. Future work
+should keep both runtimes aligned unless a runtime-specific platform limit is
+documented. The next useful work is grouped by product risk:
 
 - Stabilization: publish a v0 package surface, keep runtime subpaths stable,
   expand live smokes across at least two SMTP providers, and keep package
