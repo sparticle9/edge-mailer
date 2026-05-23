@@ -1,9 +1,8 @@
 # Client Integration
 
 Edge Mailer exposes one SMTP client API with runtime-specific entrypoints.
-Cloudflare Workers is the production baseline. Deno support is available for
-local Deno CLI use and remains experimental on Deno Deploy v2 until a deployed
-SMTP smoke passes.
+Cloudflare Workers and Deno are both first-class edge runtimes. Cloudflare
+Workers was implemented first; it is not a priority tier over Deno.
 
 ## Runtime Imports
 

@@ -3,16 +3,17 @@
 Edge Mailer is a serverless SMTP submission toolkit for applications that need
 to send through existing SMTP infrastructure from modern edge runtimes.
 
-The current implementation keeps Cloudflare Workers as the production baseline
-and adds an explicit Deno runtime entrypoint for Deno CLI and Deno Deploy v2
-work. It is not published to npm yet, and the public API should be treated as
-prerelease.
+The current implementation supports Cloudflare Workers and Deno as first-class
+edge runtimes. Cloudflare Workers was the first runtime implemented, but it is
+not a priority tier over Deno. It is not published to npm yet, and the public
+API should be treated as prerelease.
 
 ## Scope
 
 Supported today:
 
 - Cloudflare Workers outbound TCP sockets through `edge-mailer/cloudflare`.
+- Deno CLI and Deno Deploy v2 direct SMTP through `edge-mailer/deno`.
 - SMTP over implicit TLS on port `465`.
 - SMTP with STARTTLS on port `587`.
 - `PLAIN`, `LOGIN`, and legacy `CRAM-MD5` authentication.
@@ -27,12 +28,6 @@ Supported today:
   SMTP response, response code, and message size.
 - Structured SMTP errors with stage, command, response code, enhanced status
   code, and transient classification.
-
-Experimental:
-
-- Deno CLI and Deno Deploy v2 direct SMTP through `edge-mailer/deno`.
-- Deno Deploy v2 has passed a deployed SMTP acceptance smoke on this branch, but
-  remains experimental until more provider and production-ops coverage exists.
 
 Not supported yet:
 
@@ -83,12 +78,14 @@ Runnable samples and deploy quickstarts live in [sample](sample):
 | Pooling and batch       | Bounded pool, `send`, `sendBatch`, `sendMany`                                                         | Same API and behavior                                                |
 | DKIM                    | RSA DKIM signing before `DATA`                                                                        | Same DKIM implementation                                             |
 | Smoke status            | Local Wrangler smoke and live `workers.dev` SMTP acceptance passed                                    | Local Deno SMTP tests and live Deno Deploy v2 SMTP acceptance passed |
-| Status                  | Production baseline for this package                                                                  | Experimental runtime support                                         |
+| Status                  | First-class edge runtime support                                                                      | First-class edge runtime support                                     |
 
 ## Roadmap
 
-Cloudflare Workers remains the production baseline while Deno support moves from
-experimental to proven. The next useful work is grouped by product risk:
+Cloudflare Workers and Deno are both first-class edge runtimes. Cloudflare
+Workers was implemented first; future work should keep both runtimes aligned
+unless a runtime-specific platform limit is documented. The next useful work is
+grouped by product risk:
 
 - Stabilization: publish a v0 package surface, keep runtime subpaths stable,
   expand live smokes across at least two SMTP providers, and keep package

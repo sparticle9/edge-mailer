@@ -112,7 +112,7 @@ Deno.serve(async request => {
     return Response.json({
       ok: true,
       runtime: 'deno',
-      deploy: 'v2-experimental',
+      deploy: 'v2',
       configured: Boolean(
         env('SMTP_HOST') &&
         (env('SMTP_USERNAME') || env('SMTP_USER')) &&
