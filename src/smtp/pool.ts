@@ -19,6 +19,7 @@ type Waiter<TMailer extends SmtpMailer> = {
   reject(reason: unknown): void
 }
 
+/** Bounded SMTP connection pool for reusing runtime mailer sessions. */
 export class SmtpConnectionPool<TMailer extends SmtpMailer> {
   private readonly maxConnections: number
   private readonly maxMessagesPerConnection: number
@@ -47,6 +48,7 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     this.idleTimeoutMs = Math.max(0, poolOptions.idleTimeoutMs ?? 60_000)
   }
 
+  /** Sends one message through an acquired SMTP session. */
   async send(email: Parameters<TMailer['send']>[0]): Promise<SmtpSendReceipt> {
     const client = await this.acquire()
     try {
@@ -61,6 +63,7 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     }
   }
 
+  /** Sends messages sequentially through the pool. */
   async sendMany(
     emails: Parameters<TMailer['send']>[0][],
     options: BatchSendOptions = {},
@@ -79,6 +82,7 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     return results
   }
 
+  /** Closes all pooled SMTP sessions and rejects queued sends. */
   async close() {
     this.closed = true
     for (const waiter of this.waitQueue) {

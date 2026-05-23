@@ -1,3 +1,4 @@
+/** Verbosity levels for SMTP client logging. */
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,

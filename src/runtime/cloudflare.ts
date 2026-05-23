@@ -20,6 +20,7 @@ function secureTransport(tls: SocketTlsMode) {
   return 'off'
 }
 
+/** Cloudflare Workers socket connector backed by `cloudflare:sockets`. */
 export const cloudflareSocketConnector: EdgeSocketConnector = {
   connect(options) {
     return connectSocket(
@@ -35,11 +36,13 @@ export const cloudflareSocketConnector: EdgeSocketConnector = {
   },
 }
 
+/** Cloudflare Workers mailer using outbound TCP sockets. */
 export class EdgeMailer extends SmtpMailer {
   private constructor(options: EdgeMailerOptions) {
     super(options, cloudflareSocketConnector, 'EdgeMailer')
   }
 
+  /** Opens and initializes an SMTP session in a Cloudflare Worker. */
   static async connect(options: EdgeMailerOptions): Promise<EdgeMailer> {
     const mailer = new EdgeMailer(options)
     try {
@@ -51,6 +54,7 @@ export class EdgeMailer extends SmtpMailer {
     }
   }
 
+  /** Sends one message and closes the SMTP session afterward. */
   static async send(
     options: EdgeMailerOptions,
     email: EmailOptions,
@@ -63,6 +67,7 @@ export class EdgeMailer extends SmtpMailer {
     }
   }
 
+  /** Sends messages sequentially over one SMTP session. */
   static async sendBatch(
     options: EdgeMailerOptions,
     emails: EmailOptions[],
@@ -76,6 +81,7 @@ export class EdgeMailer extends SmtpMailer {
     }
   }
 
+  /** Creates a bounded pool of Cloudflare SMTP sessions. */
   static createPool(
     options: EdgeMailerOptions,
   ): SmtpConnectionPool<EdgeMailer> {

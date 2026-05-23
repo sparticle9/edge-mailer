@@ -1,3 +1,13 @@
+/**
+ * Cloudflare Workers SMTP submission over `cloudflare:sockets`.
+ *
+ * @example
+ * ```ts
+ * import { EdgeMailer } from "@sparticle9/edge-mailer/cloudflare";
+ * ```
+ *
+ * @module cloudflare
+ */
 export * from './email.ts'
 export * from './dkim.ts'
 export * from './runtime/cloudflare.ts'

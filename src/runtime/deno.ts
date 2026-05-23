@@ -16,6 +16,7 @@ type DenoConn = {
   close(): void
 }
 
+/** Subset of Deno socket APIs required by the Deno connector. */
 export type DenoSocketRuntime = {
   connect(options: {
     hostname: string
@@ -65,6 +66,7 @@ function wrapDenoConn(
   }
 }
 
+/** Creates an SMTP socket connector for Deno runtimes. */
 export function createDenoSocketConnector(
   deno: DenoSocketRuntime = currentDeno(),
 ): EdgeSocketConnector {
@@ -99,11 +101,13 @@ export function createDenoSocketConnector(
   }
 }
 
+/** Deno mailer using Deno TCP, TLS, and STARTTLS socket APIs. */
 export class DenoMailer extends SmtpMailer {
   private constructor(options: EdgeMailerOptions) {
     super(options, createDenoSocketConnector(), 'DenoMailer')
   }
 
+  /** Opens and initializes an SMTP session in Deno. */
   static async connect(options: EdgeMailerOptions): Promise<DenoMailer> {
     const mailer = new DenoMailer(options)
     try {
@@ -115,6 +119,7 @@ export class DenoMailer extends SmtpMailer {
     }
   }
 
+  /** Sends one message and closes the SMTP session afterward. */
   static async send(
     options: EdgeMailerOptions,
     email: EmailOptions,
@@ -127,6 +132,7 @@ export class DenoMailer extends SmtpMailer {
     }
   }
 
+  /** Sends messages sequentially over one SMTP session. */
   static async sendBatch(
     options: EdgeMailerOptions,
     emails: EmailOptions[],
@@ -140,6 +146,7 @@ export class DenoMailer extends SmtpMailer {
     }
   }
 
+  /** Creates a bounded pool of Deno SMTP sessions. */
   static createPool(
     options: EdgeMailerOptions,
   ): SmtpConnectionPool<DenoMailer> {

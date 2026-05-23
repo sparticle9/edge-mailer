@@ -1,5 +1,10 @@
 # edge-mailer
 
+## 0.6.1
+
+- Add JSR module documentation for public entrypoints.
+- Add JSDoc for exported symbols to improve generated API documentation.
+
 ## 0.6.0
 
 - Start public prerelease versioning at `v0.6.0`.

@@ -1,5 +1,7 @@
+/** TLS mode requested from a runtime socket adapter. */
 export type SocketTlsMode = 'off' | 'on' | 'starttls'
 
+/** Minimal readable/writable socket contract used by the SMTP core. */
 export type EdgeSocket = {
   readable: ReadableStream<Uint8Array>
   writable: WritableStream<Uint8Array>
@@ -9,6 +11,7 @@ export type EdgeSocket = {
   startTls?(): EdgeSocket | Promise<EdgeSocket>
 }
 
+/** Runtime socket connection request. */
 export type EdgeSocketConnectOptions = {
   hostname: string
   port: number
@@ -16,6 +19,7 @@ export type EdgeSocketConnectOptions = {
   signal?: AbortSignal
 }
 
+/** Runtime adapter that opens SMTP TCP/TLS sockets. */
 export type EdgeSocketConnector = {
   connect(options: EdgeSocketConnectOptions): EdgeSocket | Promise<EdgeSocket>
 }

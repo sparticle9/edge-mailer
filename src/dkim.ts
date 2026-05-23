@@ -1,5 +1,6 @@
 import { encode } from './utils.ts'
 
+/** DKIM signing options for RSA-SHA256 signatures. */
 export type DkimConfig = {
   domainName: string
   keySelector: string
@@ -173,6 +174,7 @@ function selectedHeaders(headers: ParsedHeader[], configured?: string[]) {
   return selected
 }
 
+/** Validates DKIM configuration before message signing. */
 export function validateDkimConfig(dkim: DkimConfig | undefined) {
   if (!dkim) {
     return
@@ -193,6 +195,7 @@ export function validateDkimConfig(dkim: DkimConfig | undefined) {
   }
 }
 
+/** Returns a MIME message prefixed with a DKIM-Signature header. */
 export async function signDkimMessage(
   message: string,
   dkim: DkimConfig,

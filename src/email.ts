@@ -1,5 +1,6 @@
 import { decode, encode, encodeQuotedPrintable } from './utils.ts'
 
+/** Encodes non-ASCII header text using RFC 2047 quoted-printable words. */
 export function encodeHeader(text: string): string {
   // If the text contains any non-ASCII characters, encode the whole string
   if (!/[^\x00-\x7F]/.test(text)) {
@@ -33,8 +34,10 @@ export function encodeHeader(text: string): string {
   return `=?UTF-8?Q?${encoded}?=`
 }
 
+/** Email address with an optional display name. */
 export type User = { name?: string; email: string }
 
+/** SMTP delivery status notification options. */
 export type DsnOptions = {
   envelopeId?: string
   RET?: {
@@ -50,8 +53,10 @@ export type DsnOptions = {
   ORCPT?: string
 }
 
+/** SMTP MAIL FROM BODY parameter value. */
 export type MailBodyType = '7BIT' | '8BITMIME'
 
+/** SMTP envelope overrides used for MAIL FROM and RCPT TO commands. */
 export type MailEnvelopeOptions = {
   from?: string
   to?: string | string[]
@@ -61,14 +66,18 @@ export type MailEnvelopeOptions = {
   requireTls?: boolean
 }
 
+/** MIME content-transfer-encoding for an attachment body. */
 export type AttachmentEncoding = 'base64' | 'quoted-printable' | '7bit'
+/** MIME content disposition for attachment parts. */
 export type AttachmentDisposition = 'attachment' | 'inline'
+/** Supported attachment content inputs. */
 export type EmailAttachmentContent =
   | string
   | Uint8Array
   | ArrayBuffer
   | ArrayBufferView
   | Blob
+/** File or inline part to include in the generated MIME message. */
 export type EmailAttachment = {
   filename: string
   content: EmailAttachmentContent
@@ -84,6 +93,7 @@ type ResolvedEmailAttachment = Omit<EmailAttachment, 'content'> & {
   resolvedContentType?: string
 }
 
+/** High-level email message options accepted by mailer send methods. */
 export type EmailOptions = {
   from: string | User
   to: string | string[] | User | User[]
@@ -99,32 +109,49 @@ export type EmailOptions = {
   dsnOverride?: DsnOptions
 }
 
+/** Builds MIME email messages and SMTP DATA payloads from {@link EmailOptions}. */
 export class Email {
+  /** Sender address used for MIME From and default envelope sender. */
   public readonly from: User
+  /** Primary recipients emitted in the MIME To header. */
   public readonly to: User[]
+  /** Reply-To address. */
   public readonly reply?: User
+  /** Carbon-copy recipients emitted in the MIME Cc header. */
   public readonly cc?: User[]
+  /** Blind-copy recipients used for envelope delivery only. */
   public readonly bcc?: User[]
 
+  /** MIME Subject header value. */
   public readonly subject: string
+  /** Plain text body. */
   public readonly text?: string
+  /** HTML body. */
   public readonly html?: string
+  /** SMTP envelope overrides. */
   public readonly envelope?: Omit<MailEnvelopeOptions, 'to'> & {
     to?: string[]
   }
+  /** Per-message DSN overrides. */
   public readonly dsnOverride?: DsnOptions
 
+  /** Attachments and inline content parts. */
   public readonly attachments?: EmailAttachment[]
 
+  /** Custom MIME headers. */
   public readonly headers: Record<string, string>
 
+  /** Marks this email as sent for callers tracking queued send state. */
   public setSent!: () => void
+  /** Marks this email as failed for callers tracking queued send state. */
   public setSentError!: (e: unknown) => void
+  /** Resolves when the email has been sent by a mailer. */
   public sent: Promise<void> = new Promise<void>((resolve, reject) => {
     this.setSent = resolve
     this.setSentError = reject
   })
 
+  /** Creates a MIME message builder from high-level email options. */
   constructor(options: EmailOptions) {
     if (!options.text && !options.html) {
       throw new Error('At least one of text or html must be provided')
@@ -187,10 +214,12 @@ export class Email {
     return Array.isArray(recipients) ? recipients : [recipients]
   }
 
+  /** Returns MIME message data without SMTP dot-stuffing. */
   public getMessageData(): string {
     return this.buildMessageData(this.resolveAttachmentsSync())
   }
 
+  /** Returns MIME message data, resolving Blob attachment content first. */
   public async getMessageDataAsync(): Promise<string> {
     return this.buildMessageData(await this.resolveAttachments())
   }
@@ -437,14 +466,17 @@ export class Email {
     return result
   }
 
+  /** Returns SMTP DATA payload with dot-stuffing and final terminator. */
   public getEmailData(): string {
     return Email.toSmtpData(this.getMessageData())
   }
 
+  /** Returns SMTP DATA payload after resolving async attachment content. */
   public async getEmailDataAsync(): Promise<string> {
     return Email.toSmtpData(await this.getMessageDataAsync())
   }
 
+  /** Dot-stuffs MIME data and appends the SMTP DATA terminator. */
   public static toSmtpData(data: string): string {
     const safeEmailData = Email.applyDotStuffing(data)
 

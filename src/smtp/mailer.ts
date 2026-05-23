@@ -8,16 +8,20 @@ import {
 import Logger, { LogLevel } from '../logger.ts'
 import type { EdgeSocket, EdgeSocketConnector } from '../runtime/socket.ts'
 
+/** SMTP authentication mechanisms supported by the shared SMTP client. */
 export type AuthType = 'plain' | 'login' | 'cram-md5'
 const DEFAULT_AUTH_TYPES: AuthType[] = ['plain', 'login', 'cram-md5']
 
+/** Username and password used for SMTP AUTH. */
 export type Credentials = {
   username: string
   password: string
 }
+/** Controls ordered batch behavior when one message fails. */
 export type BatchSendOptions = {
   continueOnError?: boolean
 }
+/** Recipient rejected by the SMTP server during the envelope phase. */
 export type SmtpRejectedRecipient = {
   recipient: string
   response: string
@@ -25,6 +29,7 @@ export type SmtpRejectedRecipient = {
   enhancedStatusCode?: string
   transient: boolean
 }
+/** Structured receipt returned after an SMTP DATA transaction completes. */
 export type SmtpSendReceipt = {
   messageId: string
   envelope: {
@@ -38,9 +43,13 @@ export type SmtpSendReceipt = {
   enhancedStatusCode?: string
   size: number
 }
+/** Ordered result list returned by `sendBatch()` and `sendMany()`. */
 export type BatchSendResult = PromiseSettledResult<SmtpSendReceipt>[]
+/** SMTP PIPELINING behavior. */
 export type PipeliningMode = 'auto' | false
+/** SMTP message body encoding advertised in MAIL FROM. */
 export type SmtpBodyType = '7BIT' | '8BITMIME'
+/** Protocol stage attached to structured SMTP errors. */
 export type SMTPStage =
   | 'connect'
   | 'greet'
@@ -57,6 +66,7 @@ export type SMTPStage =
   | 'send'
   | 'read'
 
+/** Constructor details for {@link SMTPError}. */
 export type SMTPErrorOptions = {
   stage: SMTPStage
   command?: string
@@ -64,15 +74,23 @@ export type SMTPErrorOptions = {
   cause?: unknown
 }
 
+/** Error thrown when an SMTP command or socket stage fails. */
 export class SMTPError extends Error {
+  /** SMTP stage where the failure happened. */
   public readonly stage: SMTPStage
+  /** SMTP command active when the failure happened, when available. */
   public readonly command?: string
+  /** Raw SMTP response line associated with the failure. */
   public readonly response?: string
+  /** Three-digit SMTP response code parsed from {@link response}. */
   public readonly responseCode?: number
+  /** Enhanced status code parsed from {@link response}. */
   public readonly enhancedStatusCode?: string
+  /** Whether the response code is a transient 4xx failure. */
   public readonly transient: boolean
   public override readonly cause?: unknown
 
+  /** Creates a structured SMTP error. */
   constructor(message: string, options: SMTPErrorOptions) {
     super(message)
     this.name = 'SMTPError'
@@ -249,6 +267,7 @@ function normalizeOrcpt(value: string) {
   return value.includes(';') ? value : `rfc822;${value}`
 }
 
+/** SMTP client configuration shared by Cloudflare and Deno runtimes. */
 export type EdgeMailerOptions = {
   host: string
   port: number
@@ -265,6 +284,7 @@ export type EdgeMailerOptions = {
   responseTimeoutMs?: number
 }
 
+/** Connection-pool limits for repeated SMTP sends. */
 export type SmtpPoolOptions = {
   maxConnections?: number
   maxMessagesPerConnection?: number
@@ -282,6 +302,7 @@ type SmtpTransaction = {
   rejected: SmtpRejectedRecipient[]
 }
 
+/** Runtime-neutral SMTP session implementation used by runtime mailers. */
 export class SmtpMailer {
   private readonly host: string
   private readonly port: number
@@ -353,6 +374,7 @@ export class SmtpMailer {
     )
   }
 
+  /** Sends one message over the active SMTP session. */
   public send(options: EmailOptions): Promise<SmtpSendReceipt> {
     const email = new Email(options)
     email.sent.catch(() => undefined)
@@ -381,6 +403,7 @@ export class SmtpMailer {
     return task
   }
 
+  /** Sends messages sequentially over the active SMTP session. */
   public async sendMany(
     emails: EmailOptions[],
     options: BatchSendOptions = {},
@@ -400,6 +423,7 @@ export class SmtpMailer {
     return results
   }
 
+  /** Closes the SMTP socket and rejects any queued sends. */
   public async close(error?: Error) {
     const closeError =
       error || new SMTPError('EdgeMailer is shutting down', { stage: 'quit' })
@@ -423,6 +447,7 @@ export class SmtpMailer {
     await this.closeSocket()
   }
 
+  /** Returns whether the SMTP session is open and usable. */
   public isActive(): boolean {
     return this.active
   }
