@@ -706,10 +706,10 @@ export class SmtpMailer {
       const envelopeStartedAt = Date.now()
       try {
         if (this.canPipeline()) {
-          transaction = await this.envelopePipelined(prepared)
+          transaction = await this.envelopePipelined(prepared, transaction)
         } else {
           await this.mail(prepared)
-          transaction = await this.rcpt(prepared)
+          transaction = await this.rcpt(prepared, transaction)
         }
       } catch (error) {
         this.emitStageObservation(
@@ -1412,8 +1412,10 @@ export class SmtpMailer {
     }
   }
 
-  private async rcpt(prepared: PreparedEmail): Promise<SmtpTransaction> {
-    const transaction: SmtpTransaction = { accepted: [], rejected: [] }
+  private async rcpt(
+    prepared: PreparedEmail,
+    transaction: SmtpTransaction = { accepted: [], rejected: [] },
+  ): Promise<SmtpTransaction> {
     const allRecipients = this.recipients(prepared.email)
     for (let recipient of allRecipients) {
       const message = this.rcptCommand(recipient, prepared.email)
@@ -1449,8 +1451,8 @@ export class SmtpMailer {
 
   private async envelopePipelined(
     prepared: PreparedEmail,
+    transaction: SmtpTransaction = { accepted: [], rejected: [] },
   ): Promise<SmtpTransaction> {
-    const transaction: SmtpTransaction = { accepted: [], rejected: [] }
     const mailCommand = this.mailCommand(prepared)
     const recipients = this.recipients(prepared.email)
     const recipientCommands = recipients.map(recipient =>

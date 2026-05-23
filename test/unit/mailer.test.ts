@@ -1569,6 +1569,9 @@ describe('EdgeMailer', () => {
           value: new TextEncoder().encode('250 Sender OK\r\n'),
         })
         .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Recipient OK\r\n'),
+        })
+        .mockResolvedValueOnce({
           value: new TextEncoder().encode('550 5.1.1 Recipient rejected\r\n'),
         })
         .mockResolvedValueOnce({
@@ -1595,7 +1598,7 @@ describe('EdgeMailer', () => {
       await expect(
         mailer.send({
           from: 'sender@example.com',
-          to: 'recipient@example.com',
+          to: ['accepted@example.com', 'recipient@example.com'],
           subject: 'Rejected',
           text: 'This should be rejected.',
         }),
@@ -1613,6 +1616,8 @@ describe('EdgeMailer', () => {
         status: 'failed',
         reason: 'recipient_rejected',
         responseCode: 550,
+        acceptedCount: 1,
+        rejectedCount: 1,
         command: 'RCPT TO: <***@example.com>',
       })
       expect(events.at(-1)).toMatchObject({
