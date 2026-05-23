@@ -181,6 +181,35 @@ Format the repo:
 pnpm run format
 ```
 
+## Release Management
+
+Public releases use SemVer with `vX.Y.Z` GitHub releases. The package version
+must stay in sync across `package.json`, `jsr.json`, the Git tag, npm, and JSR.
+
+Run the local release gate:
+
+```sh
+pnpm run release:dry-run
+```
+
+Future release notes and version bumps should start with Changesets:
+
+```sh
+pnpm changeset
+pnpm run version
+```
+
+The first public release is bootstrapped directly as `0.6.0`. Publishing is
+triggered by publishing a GitHub Release with the matching tag, for example
+`v0.6.0`. The release workflow publishes `edge-mailer` to npm and
+`@sparticle9/edge-mailer` to JSR without attaching GitHub release artifacts.
+
+Before the first JSR publish, create the `@sparticle9/edge-mailer` package on
+JSR and link it to `sparticle9/edge-mailer` for GitHub Actions OIDC. Before the
+first npm publish, configure the `NPM_TOKEN` GitHub secret. After `0.6.0` is
+published, configure npm trusted publishing for `.github/workflows/publish.yml`
+and remove token-based publishing.
+
 ## Test Layout
 
 Tests are grouped by runtime purpose:

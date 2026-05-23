@@ -120,7 +120,7 @@ export class Email {
 
   public setSent!: () => void
   public setSentError!: (e: unknown) => void
-  public sent = new Promise<void>((resolve, reject) => {
+  public sent: Promise<void> = new Promise<void>((resolve, reject) => {
     this.setSent = resolve
     this.setSentError = reject
   })
@@ -187,11 +187,11 @@ export class Email {
     return Array.isArray(recipients) ? recipients : [recipients]
   }
 
-  public getMessageData() {
+  public getMessageData(): string {
     return this.buildMessageData(this.resolveAttachmentsSync())
   }
 
-  public async getMessageDataAsync() {
+  public async getMessageDataAsync(): Promise<string> {
     return this.buildMessageData(await this.resolveAttachments())
   }
 
@@ -437,15 +437,15 @@ export class Email {
     return result
   }
 
-  public getEmailData() {
+  public getEmailData(): string {
     return Email.toSmtpData(this.getMessageData())
   }
 
-  public async getEmailDataAsync() {
+  public async getEmailDataAsync(): Promise<string> {
     return Email.toSmtpData(await this.getMessageDataAsync())
   }
 
-  public static toSmtpData(data: string) {
+  public static toSmtpData(data: string): string {
     const safeEmailData = Email.applyDotStuffing(data)
 
     return safeEmailData.endsWith('\r\n')

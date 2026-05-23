@@ -193,7 +193,10 @@ export function validateDkimConfig(dkim: DkimConfig | undefined) {
   }
 }
 
-export async function signDkimMessage(message: string, dkim: DkimConfig) {
+export async function signDkimMessage(
+  message: string,
+  dkim: DkimConfig,
+): Promise<string> {
   validateDkimConfig(dkim)
   const splitIndex = message.indexOf('\r\n\r\n')
   if (splitIndex < 0) {

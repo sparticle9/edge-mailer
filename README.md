@@ -5,8 +5,20 @@ to send through existing SMTP infrastructure from modern edge runtimes.
 
 The current implementation supports Cloudflare Workers and Deno as first-class
 edge runtimes. Cloudflare Workers was the first runtime implemented, but it is
-not a priority tier over Deno. It is not published to npm yet, and the public
-API should be treated as prerelease.
+not a priority tier over Deno. The public API is versioned as a `0.x`
+prerelease surface.
+
+Install from npm for Cloudflare Workers and Node-compatible build pipelines:
+
+```sh
+pnpm add edge-mailer
+```
+
+Use the JSR package for Deno:
+
+```sh
+deno add jsr:@sparticle9/edge-mailer
+```
 
 ## Scope
 
@@ -53,7 +65,7 @@ import { EdgeMailer } from 'edge-mailer/cloudflare'
 Use the Deno subpath for Deno:
 
 ```ts
-import { DenoMailer } from 'edge-mailer/deno'
+import { DenoMailer } from 'jsr:@sparticle9/edge-mailer/deno'
 ```
 
 Runnable samples and deploy quickstarts live in [sample](sample):

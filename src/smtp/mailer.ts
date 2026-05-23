@@ -423,7 +423,7 @@ export class SmtpMailer {
     await this.closeSocket()
   }
 
-  public isActive() {
+  public isActive(): boolean {
     return this.active
   }
 
