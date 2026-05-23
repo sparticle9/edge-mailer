@@ -114,7 +114,8 @@ invocations.
 
 ## DKIM
 
-Set `config.dkim` to sign outbound messages before SMTP `DATA`:
+Set `config.dkim` only when Edge Mailer should sign outbound messages before
+SMTP `DATA`:
 
 ```ts
 await EdgeMailer.send(
@@ -130,9 +131,21 @@ await EdgeMailer.send(
 )
 ```
 
-`privateKey` accepts PEM PKCS#8 private keys and RSA private keys. The default
-signed header list is `from`, `to`, `subject`, `date`, `message-id`,
-`mime-version`, and `content-type`; override it with `dkim.headerFieldNames`.
+If your SMTP provider manages DKIM for a verified sending domain, leave
+`config.dkim` unset. Provider-managed DKIM means the provider stores or
+generates the private key and asks you to publish only the DNS TXT public key,
+usually at `<selector>._domainkey.<domain>` with `p=<base64-public-key>`.
+
+If Edge Mailer signs, `privateKey` accepts PEM PKCS#8 private keys and RSA
+private keys. That private key must match the DNS TXT public key for
+`dkim.keySelector` and `dkim.domainName`. The DKIM `d=` domain should align with
+the visible `From:` domain when DKIM is used for DMARC. Multiple DKIM signatures
+are valid, but avoid double-signing unless you intentionally need both Edge
+Mailer and the provider to sign.
+
+The default signed header list is `from`, `to`, `subject`, `date`,
+`message-id`, `mime-version`, and `content-type`; override it with
+`dkim.headerFieldNames`.
 
 ## MIME Attachments
 

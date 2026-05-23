@@ -39,6 +39,12 @@ DKIM_SELECTOR=mail
 DKIM_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 ```
 
+Set `DKIM_*` only for Edge Mailer self-signing. If your SMTP provider manages
+DKIM, it keeps the private key and gives you only the DNS TXT public key
+(`p=...`); leave `DKIM_PRIVATE_KEY` unset. For self-signing, publish the public
+key matching `DKIM_PRIVATE_KEY` at
+`<DKIM_SELECTOR>._domainkey.<DKIM_DOMAIN>`.
+
 Minimum Cloudflare token permissions:
 
 - Account: `Workers Scripts Write`

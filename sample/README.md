@@ -34,13 +34,17 @@ Recommended hosted sample protection:
 SAMPLE_SEND_TOKEN=generate-a-long-random-token
 ```
 
-Optional DKIM environment names:
+Optional DKIM self-signing environment names:
 
 ```env
 DKIM_DOMAIN=example.com
 DKIM_SELECTOR=mail
 DKIM_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 ```
+
+Set these only when Edge Mailer should sign before SMTP delivery. If your SMTP
+provider manages DKIM, it keeps the private key and gives you only the DNS TXT
+public key (`p=...`); leave `DKIM_PRIVATE_KEY` unset.
 
 ## Runtime Guides
 
