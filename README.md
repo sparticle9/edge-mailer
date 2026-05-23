@@ -4,8 +4,9 @@ Edge Mailer is a serverless SMTP submission toolkit for applications that need
 to send through existing SMTP infrastructure from modern edge runtimes.
 
 The current implementation keeps Cloudflare Workers as the production baseline
-and adds an explicit Deno runtime entrypoint for local Deno CLI work. It is not
-published to npm yet, and the public API should be treated as prerelease.
+and adds an explicit Deno runtime entrypoint for Deno CLI and Deno Deploy v2
+work. It is not published to npm yet, and the public API should be treated as
+prerelease.
 
 ## Scope
 
@@ -18,8 +19,8 @@ Supported today:
 - SMTP extensions: `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`,
   `REQUIRETLS`, and `DSN` when advertised by the server.
 - Plain text, HTML, custom headers, CC, BCC, reply-to, inline/CID
-  attachments, and attachment transfer encodings `base64`, `7bit`, and
-  `quoted-printable`.
+  attachments, raw `Uint8Array`/`ArrayBuffer`/`Blob` attachment content, and
+  attachment transfer encodings `base64`, `7bit`, and `quoted-printable`.
 - Batch sending over one SMTP session and bounded connection pools.
 - DKIM signing with RSA private keys.
 - Structured send receipts with message id, envelope, accepted recipients, final
@@ -29,15 +30,15 @@ Supported today:
 
 Experimental:
 
-- Deno CLI direct SMTP through `edge-mailer/deno`.
-- Deno Deploy v2 direct SMTP, pending a deployed smoke with real SMTP
-  credentials.
+- Deno CLI and Deno Deploy v2 direct SMTP through `edge-mailer/deno`.
+- Deno Deploy v2 has passed a deployed SMTP acceptance smoke on this branch, but
+  remains experimental until more provider and production-ops coverage exists.
 
 Not supported yet:
 
 - Direct SMTP from Vercel Edge or other runtimes without outbound TCP sockets.
 - XOAUTH2.
-- Message streaming for large attachments.
+- True streaming SMTP `DATA` for large attachments.
 - ICS/calendar invite helpers.
 - HTTP provider SDK wrappers.
 
@@ -60,14 +61,57 @@ Use the Deno subpath for Deno:
 import { DenoMailer } from 'edge-mailer/deno'
 ```
 
-Runnable samples live in [sample](sample):
+Runnable samples and deploy quickstarts live in [sample](sample):
 
 - [sample/cloudflare-worker-smtp](sample/cloudflare-worker-smtp)
 - [sample/deno-smtp](sample/deno-smtp)
 
+## Runtime Matrix
+
+| Capability              | Cloudflare Workers                                                                                    | Deno CLI / Deno Deploy v2                                            |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Import path             | `edge-mailer/cloudflare`                                                                              | `edge-mailer/deno`                                                   |
+| Runtime class           | `EdgeMailer`                                                                                          | `DenoMailer`                                                         |
+| Socket backend          | `cloudflare:sockets`                                                                                  | `Deno.connect`, `Deno.connectTls`, `Deno.startTls`                   |
+| Direct SMTP             | Yes, outbound TCP sockets                                                                             | Yes, Deno TCP/TLS sockets                                            |
+| Port `587` STARTTLS     | Yes                                                                                                   | Yes                                                                  |
+| Port `465` implicit TLS | Yes                                                                                                   | Yes                                                                  |
+| Port `25`               | Not supported by Cloudflare Workers                                                                   | Not recommended; provider/runtime policy may vary                    |
+| Auth                    | `PLAIN`, `LOGIN`, `CRAM-MD5`                                                                          | `PLAIN`, `LOGIN`, `CRAM-MD5`                                         |
+| SMTP extensions         | `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`, `REQUIRETLS`, `DSN`                                     | Same shared SMTP core                                                |
+| Message features        | Text, HTML, custom headers, CC/BCC, reply-to, inline/CID attachments, raw byte/Blob attachment inputs | Same shared MIME/message builder                                     |
+| Pooling and batch       | Bounded pool, `send`, `sendBatch`, `sendMany`                                                         | Same API and behavior                                                |
+| DKIM                    | RSA DKIM signing before `DATA`                                                                        | Same DKIM implementation                                             |
+| Smoke status            | Local Wrangler smoke and live `workers.dev` SMTP acceptance passed                                    | Local Deno SMTP tests and live Deno Deploy v2 SMTP acceptance passed |
+| Status                  | Production baseline for this package                                                                  | Experimental runtime support                                         |
+
 ## Roadmap
 
-Cloudflare Workers remains the production baseline. Planned work includes
-XOAUTH2 support, streaming attachment support, calendar helpers, better
-observation events, Deno Deploy v2 smoke coverage, and a Worker relay path for
-runtimes that cannot open SMTP sockets directly.
+Cloudflare Workers remains the production baseline while Deno support moves from
+experimental to proven. The next useful work is grouped by product risk:
+
+- Stabilization: publish a v0 package surface, keep runtime subpaths stable,
+  expand live smokes across at least two SMTP providers, and keep package
+  contents free of local reference material and secrets.
+- Runtime coverage: continue hardening Deno Deploy v2, add CI-friendly sample
+  deployment checks, and document any runtime-specific socket limitations before
+  adding another runtime.
+- Observability: add structured SMTP lifecycle events, redacted debug logging,
+  per-send timing, pool metrics, and smoke-test output that separates SMTP
+  acceptance from final inbox placement.
+- Deliverability and operations: add clearer retry guidance from structured SMTP
+  errors, DKIM verification examples, and mailbox delivery caveats.
+- Message features: add XOAUTH2, calendar invite helpers, richer MIME fixtures,
+  and safer large-attachment guidance around provider size limits.
+- No-direct-SMTP runtimes: design a Worker relay path for environments that
+  cannot open TCP sockets directly, such as Vercel Edge.
+
+Attachment ergonomics now favor raw `Uint8Array`, `ArrayBuffer`, and `Blob`
+inputs while reducing avoidable base64 wrapping copies. True one-pass streaming
+SMTP `DATA` remains deferred: DKIM needs the canonicalized body hash before the
+signed headers are sent, SMTP `SIZE` and retries need repeatable byte sources,
+and both Cloudflare Workers and Deno Deploy are more likely to benefit first
+from predictable memory use and linked large assets than from a complex
+streaming/spooling path. Revisit true streaming only if real users need large
+in-message attachments rather than signed download links or small transactional
+attachments.

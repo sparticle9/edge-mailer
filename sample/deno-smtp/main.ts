@@ -90,12 +90,21 @@ function sampleEmail(body: Partial<EmailOptions> = {}): EmailOptions {
     attachments: body.attachments || [
       {
         filename: 'edge-mailer-sample.txt',
-        content: 'Deno sample attachment\n',
-        mimeType: 'text/plain',
-        encoding: '7bit',
+        content: new Blob(['Deno sample attachment\n'], { type: 'text/plain' }),
       },
     ],
   }
+}
+
+function authorized(request: Request) {
+  const token = env('SAMPLE_SEND_TOKEN')
+  if (!token) {
+    return true
+  }
+  const authorization = request.headers.get('authorization')
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
+  const headerToken = request.headers.get('x-sample-send-token')
+  return bearer === token || headerToken === token
 }
 
 Deno.serve(async request => {
@@ -109,11 +118,16 @@ Deno.serve(async request => {
         (env('SMTP_USERNAME') || env('SMTP_USER')) &&
         env('SMTP_PASSWORD'),
       ),
+      protected: Boolean(env('SAMPLE_SEND_TOKEN')),
     })
   }
 
   if (request.method !== 'POST') {
     return Response.json({ error: 'Method not allowed' }, { status: 405 })
+  }
+
+  if (!authorized(request)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const body = (await request.json().catch(() => ({}))) as Partial<EmailOptions>

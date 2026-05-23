@@ -1,4 +1,4 @@
-import { encode, encodeQuotedPrintable } from './utils.ts'
+import { decode, encode, encodeQuotedPrintable } from './utils.ts'
 
 export function encodeHeader(text: string): string {
   // If the text contains any non-ASCII characters, encode the whole string
@@ -63,14 +63,25 @@ export type MailEnvelopeOptions = {
 
 export type AttachmentEncoding = 'base64' | 'quoted-printable' | '7bit'
 export type AttachmentDisposition = 'attachment' | 'inline'
+export type EmailAttachmentContent =
+  | string
+  | Uint8Array
+  | ArrayBuffer
+  | ArrayBufferView
+  | Blob
 export type EmailAttachment = {
   filename: string
-  content: string | Uint8Array
+  content: EmailAttachmentContent
   mimeType?: string
   contentType?: string
   encoding?: AttachmentEncoding
   contentId?: string
   disposition?: AttachmentDisposition
+}
+
+type ResolvedEmailAttachment = Omit<EmailAttachment, 'content'> & {
+  content: string | Uint8Array
+  resolvedContentType?: string
 }
 
 export type EmailOptions = {
@@ -177,6 +188,14 @@ export class Email {
   }
 
   public getMessageData() {
+    return this.buildMessageData(this.resolveAttachmentsSync())
+  }
+
+  public async getMessageDataAsync() {
+    return this.buildMessageData(await this.resolveAttachments())
+  }
+
+  private buildMessageData(attachments: ResolvedEmailAttachment[] | undefined) {
     this.resolveHeader()
 
     const headersArray: string[] = ['MIME-Version: 1.0']
@@ -195,10 +214,10 @@ export class Email {
     const headers = headersArray.join('\r\n')
 
     let emailData = `${headers}\r\n\r\n`
-    const inlineAttachments = (this.attachments || []).filter(
+    const inlineAttachments = (attachments || []).filter(
       attachment => this.attachmentDisposition(attachment) === 'inline',
     )
-    const regularAttachments = (this.attachments || []).filter(
+    const regularAttachments = (attachments || []).filter(
       attachment => this.attachmentDisposition(attachment) !== 'inline',
     )
     const relatedBoundary = this.generateSafeBoundary('related_')
@@ -247,10 +266,87 @@ export class Email {
     return emailData.endsWith('\r\n') ? emailData : `${emailData}\r\n`
   }
 
-  private attachmentPart(boundary: string, attachment: EmailAttachment) {
+  private async resolveAttachments() {
+    if (!this.attachments?.length) {
+      return undefined
+    }
+
+    const attachments: ResolvedEmailAttachment[] = []
+    for (const attachment of this.attachments) {
+      if (typeof attachment.content === 'string') {
+        attachments.push({ ...attachment, content: attachment.content })
+        continue
+      }
+
+      if (this.isBlob(attachment.content)) {
+        const blob = attachment.content
+        attachments.push({
+          ...attachment,
+          content: new Uint8Array(await blob.arrayBuffer()),
+          resolvedContentType: blob.type || undefined,
+        })
+        continue
+      }
+
+      attachments.push({
+        ...attachment,
+        content: this.attachmentBytes(attachment.content),
+      })
+    }
+    return attachments
+  }
+
+  private resolveAttachmentsSync() {
+    if (!this.attachments?.length) {
+      return undefined
+    }
+
+    return this.attachments.map(attachment => {
+      if (typeof attachment.content === 'string') {
+        return { ...attachment, content: attachment.content }
+      }
+
+      if (this.isBlob(attachment.content)) {
+        throw new Error(
+          'Blob attachment content requires async message generation; use getMessageDataAsync(), getEmailDataAsync(), or send through a mailer',
+        )
+      }
+
+      return {
+        ...attachment,
+        content: this.attachmentBytes(attachment.content),
+      }
+    })
+  }
+
+  private attachmentBytes(
+    content: Uint8Array | ArrayBuffer | ArrayBufferView,
+  ): Uint8Array {
+    if (content instanceof Uint8Array) {
+      return content
+    }
+    if (content instanceof ArrayBuffer) {
+      return new Uint8Array(content)
+    }
+    return new Uint8Array(
+      content.buffer,
+      content.byteOffset,
+      content.byteLength,
+    )
+  }
+
+  private isBlob(content: EmailAttachmentContent): content is Blob {
+    return typeof Blob !== 'undefined' && content instanceof Blob
+  }
+
+  private attachmentPart(
+    boundary: string,
+    attachment: ResolvedEmailAttachment,
+  ) {
     const mimeType =
       attachment.mimeType ||
       attachment.contentType ||
+      attachment.resolvedContentType ||
       this.getMimeType(attachment.filename)
     const disposition = this.attachmentDisposition(attachment)
     const encoding = attachment.encoding || 'base64'
@@ -274,15 +370,13 @@ export class Email {
   }
 
   private encodedAttachmentContent(
-    attachment: EmailAttachment,
+    attachment: ResolvedEmailAttachment,
     encoding: AttachmentEncoding,
   ) {
     if (encoding === 'base64') {
-      const value =
-        typeof attachment.content === 'string'
-          ? attachment.content
-          : this.bytesToBase64(attachment.content)
-      return this.wrapBase64(value)
+      return typeof attachment.content === 'string'
+        ? this.wrapBase64(attachment.content)
+        : this.bytesToWrappedBase64(attachment.content)
     }
 
     const content = this.attachmentTextContent(attachment)
@@ -296,11 +390,22 @@ export class Email {
     return content.replace(/\r?\n/g, '\r\n')
   }
 
-  private attachmentTextContent(attachment: EmailAttachment) {
+  private attachmentTextContent(attachment: ResolvedEmailAttachment) {
     if (typeof attachment.content === 'string') {
       return attachment.content
     }
-    return new TextDecoder().decode(attachment.content)
+    return decode(attachment.content)
+  }
+
+  private bytesToWrappedBase64(bytes: Uint8Array) {
+    let result = ''
+    for (let index = 0; index < bytes.length; index += 57) {
+      if (result) {
+        result += '\r\n'
+      }
+      result += this.bytesToBase64(bytes.subarray(index, index + 57))
+    }
+    return result
   }
 
   private bytesToBase64(bytes: Uint8Array) {
@@ -312,13 +417,32 @@ export class Email {
   }
 
   private wrapBase64(value: string) {
-    const normalized = value.replace(/\s+/g, '')
-    const lines = normalized.match(/.{1,76}/g)
-    return lines ? lines.join('\r\n') : normalized
+    let result = ''
+    let line = ''
+
+    for (const char of value) {
+      if (/\s/.test(char)) {
+        continue
+      }
+      line += char
+      if (line.length === 76) {
+        result += result ? `\r\n${line}` : line
+        line = ''
+      }
+    }
+
+    if (line) {
+      result += result ? `\r\n${line}` : line
+    }
+    return result
   }
 
   public getEmailData() {
     return Email.toSmtpData(this.getMessageData())
+  }
+
+  public async getEmailDataAsync() {
+    return Email.toSmtpData(await this.getMessageDataAsync())
   }
 
   public static toSmtpData(data: string) {

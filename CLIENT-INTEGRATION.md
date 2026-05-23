@@ -136,7 +136,7 @@ signed header list is `from`, `to`, `subject`, `date`, `message-id`,
 
 ## MIME Attachments
 
-Attachments default to the previous base64-string behavior:
+Attachments from strings default to the previous base64-string behavior:
 
 ```ts
 attachments: [
@@ -144,6 +144,28 @@ attachments: [
     filename: 'report.txt',
     content: btoa('report body'),
     mimeType: 'text/plain',
+  },
+]
+```
+
+For new binary attachments, pass raw bytes directly. `Uint8Array`,
+`ArrayBuffer`, typed-array views, and `Blob` content are encoded as MIME base64
+by the library; `Blob.type` is used as the content type when no `mimeType` or
+`contentType` is provided. Mailer sends handle `Blob` asynchronously. Direct
+`Email` callers should use `getEmailDataAsync()` for `Blob` attachments.
+
+```ts
+attachments: [
+  {
+    filename: 'report.pdf',
+    content: reportBytes, // Uint8Array or ArrayBuffer
+    mimeType: 'application/pdf',
+  },
+  {
+    filename: 'snapshot.json',
+    content: new Blob([JSON.stringify(snapshot)], {
+      type: 'application/json',
+    }),
   },
 ]
 ```
@@ -206,7 +228,8 @@ Supported SMTP features:
 - `DSN` through `dsn` defaults and per-message `dsnOverride`
 - DKIM signing before `DATA`
 - Multipart alternative, related, and mixed MIME composition
-- Attachments with `base64`, `7bit`, and `quoted-printable` transfer encodings
+- Attachments from base64 strings, raw bytes, or `Blob` content with `base64`,
+  `7bit`, and `quoted-printable` transfer encodings
 
 ## Envelope Options
 

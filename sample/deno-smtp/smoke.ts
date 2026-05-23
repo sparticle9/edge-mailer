@@ -91,9 +91,10 @@ const email: EmailOptions = {
   attachments: [
     {
       filename: 'edge-mailer-smoke.txt',
-      content: `Deno smoke attachment\nMarker: ${marker}\n`,
+      content: new TextEncoder().encode(
+        `Deno smoke attachment\nMarker: ${marker}\n`,
+      ),
       mimeType: 'text/plain',
-      encoding: '7bit',
     },
   ],
 }

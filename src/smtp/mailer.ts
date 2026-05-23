@@ -492,9 +492,10 @@ export class SmtpMailer {
   }
 
   private async prepareEmail(email: Email): Promise<PreparedEmail> {
+    const message = await email.getMessageDataAsync()
     const messageData = this.dkim
-      ? await signDkimMessage(email.getMessageData(), this.dkim)
-      : email.getMessageData()
+      ? await signDkimMessage(message, this.dkim)
+      : message
     const data = Email.toSmtpData(messageData)
     return {
       email,

@@ -384,6 +384,15 @@ Deno.test(
               mimeType: 'text/plain',
               encoding: 'quoted-printable',
             },
+            {
+              filename: 'blob.txt',
+              content: new Blob(['blob attachment'], { type: 'text/plain' }),
+            },
+            {
+              filename: 'raw.bin',
+              content: new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
+              mimeType: 'application/octet-stream',
+            },
           ],
         }),
       )
@@ -414,6 +423,18 @@ Deno.test(
       assert(
         message.includes('=C3=BCmlaut attachment'),
         'quoted-printable attachment body is encoded',
+      )
+      assert(
+        message.includes('Content-Type: text/plain; name="blob.txt"'),
+        'Blob content type is inferred',
+      )
+      assert(
+        message.includes(btoa('blob attachment')),
+        'Blob attachment body is base64 encoded',
+      )
+      assert(
+        message.includes('3q2+7w=='),
+        'Uint8Array attachment body is base64 encoded',
       )
     } finally {
       await server.close()

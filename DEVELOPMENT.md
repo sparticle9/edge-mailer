@@ -214,10 +214,15 @@ Run the Deno HTTP sample locally:
 direnv exec . sh -c 'cd sample/deno-smtp && deno task serve'
 ```
 
+Runtime sample quickstarts and hosted deployment commands live in
+[sample](sample), [sample/cloudflare-worker-smtp](sample/cloudflare-worker-smtp),
+and [sample/deno-smtp](sample/deno-smtp).
+
 Deno Deploy v2 must use the current `deno deploy` CLI. Deploy v2 runs the
 standard Deno runtime with `--allow-all`; custom Deno runtime flags cannot be
-passed. Deno Deploy support remains experimental until the deployed sample sends
-through real SMTP credentials.
+passed. Deno Deploy support remains experimental until the live smoke matrix and
+operational guidance are broader than the current single-app SMTP acceptance
+proof.
 
 ## SMTP Core Server Suite
 
@@ -250,6 +255,14 @@ pnpm run test:smoke:smtp
 
 The smoke harness starts a local Wrangler Worker, sends through port `587`
 with STARTTLS, then sends through port `465` with implicit TLS.
+
+Expected emails for `pnpm run test:smoke:smtp`:
+
+| Count | Recipient                           | Subject                                              |
+| ----- | ----------------------------------- | ---------------------------------------------------- |
+| 1     | `SMTP_TO` or `TEST_RECIPIENT_EMAIL` | `[edge-mailer smoke] 587 text <ISO timestamp>`       |
+| 1     | `SMTP_TO` or `TEST_RECIPIENT_EMAIL` | `[edge-mailer smoke] 587 html <ISO timestamp>`       |
+| 1     | `SMTP_TO` or `TEST_RECIPIENT_EMAIL` | `[edge-mailer smoke] 465 attachment <ISO timestamp>` |
 
 ## Reports
 
