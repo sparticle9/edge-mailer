@@ -209,9 +209,9 @@ JSR and link it to `sparticle9/edge-mailer` for GitHub Actions OIDC. Before the
 first npm publish, configure npm trusted publishing for `sparticle9/edge-mailer`
 and `.github/workflows/publish.yml`; no npm token secret is used. If npm does
 not allow trusted-publisher setup before the first package version exists,
-publish `0.6.0` once with local interactive 2FA, then configure trusted
-publishing. The release workflow skips npm when the matching version is already
-published.
+publish `0.6.0` once with local interactive 2FA and without provenance, then
+configure trusted publishing. The release workflow skips npm when the matching
+version is already published.
 
 ## Test Layout
 
