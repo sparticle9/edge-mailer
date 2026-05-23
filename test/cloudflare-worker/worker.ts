@@ -1,6 +1,10 @@
-import { EmailOptions } from '../src/email'
-import { LogLevel } from '../src/logger'
-import { EdgeMailer, type EdgeMailerOptions } from '../src/mailer'
+import { EmailOptions } from '../../src/email'
+import { LogLevel } from '../../src/logger'
+import {
+  EdgeMailer,
+  type EdgeMailerOptions,
+  type SmtpSendReceipt,
+} from '../../src/mailer'
 
 type SmokeRequest =
   | {
@@ -15,9 +19,18 @@ type SmokeRequest =
       continueOnError?: boolean
     }
 
-function resultToJson(result: PromiseSettledResult<void>) {
+function receiptToJson(receipt: SmtpSendReceipt) {
+  return {
+    messageId: receipt.messageId,
+    accepted: receipt.accepted,
+    rejected: receipt.rejected,
+    responseCode: receipt.responseCode,
+  }
+}
+
+function resultToJson(result: PromiseSettledResult<SmtpSendReceipt>) {
   if (result.status === 'fulfilled') {
-    return { status: 'fulfilled' }
+    return { status: 'fulfilled', receipt: receiptToJson(result.value) }
   }
   const reason = result.reason
   if (reason instanceof Error) {
@@ -70,7 +83,7 @@ export default {
         }
       }
 
-      await EdgeMailer.send(
+      const receipt = await EdgeMailer.send(
         {
           ...body.config,
           logLevel,
@@ -78,7 +91,7 @@ export default {
         body.email,
       )
 
-      return Response.json({ ok: true })
+      return Response.json({ ok: true, receipt: receiptToJson(receipt) })
     } catch (error) {
       if (error instanceof Error) {
         return Response.json(

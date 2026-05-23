@@ -1,0 +1,10 @@
+{
+  "tasks": {
+    "check": "deno check main.ts smoke.ts",
+    "serve": "deno run --allow-net --allow-env main.ts",
+    "smoke": "deno run --allow-net --allow-env smoke.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom", "dom.iterable", "esnext"]
+  }
+}

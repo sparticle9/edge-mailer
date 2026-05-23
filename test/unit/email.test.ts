@@ -375,6 +375,123 @@ describe('Email', () => {
     ])
   })
 
+  it('should include raw byte attachments from Uint8Array, ArrayBuffer, and views', () => {
+    const encoder = new TextEncoder()
+    const arrayBufferBody = encoder.encode('ArrayBuffer raw body')
+    const viewSource = encoder.encode('xxDataView bodyyy')
+    const email = new Email({
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Raw Bytes',
+      text: 'Hello World',
+      attachments: [
+        {
+          filename: 'uint8.txt',
+          content: encoder.encode('Uint8Array raw body'),
+        },
+        {
+          filename: 'array-buffer.txt',
+          content: arrayBufferBody.buffer.slice(0),
+        },
+        {
+          filename: 'view.txt',
+          content: new DataView(viewSource.buffer, 2, 13),
+        },
+      ],
+    })
+
+    const msg = extract(email.getEmailData())
+    expect(msg.attachments.map(attachment => attachment.body)).toEqual([
+      'Uint8Array raw body',
+      'ArrayBuffer raw body',
+      'DataView body',
+    ])
+  })
+
+  it('should read Blob attachment content asynchronously and infer its MIME type', async () => {
+    const email = new Email({
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Blob attachment',
+      text: 'Hello World',
+      attachments: [
+        {
+          filename: 'blob.dat',
+          content: new Blob(['Blob body'], { type: 'text/plain' }),
+        },
+      ],
+    })
+
+    expect(() => email.getEmailData()).toThrow(
+      'Blob attachment content requires async message generation',
+    )
+
+    const data = await email.getEmailDataAsync()
+    expect(data).toContain('Content-Type: text/plain; name="blob.dat"')
+    const msg = extract(data)
+    expect(msg.attachments[0].body).toBe('Blob body')
+  })
+
+  it('should support inline attachments and richer transfer encodings', () => {
+    const email = new Email({
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Rich MIME',
+      text: 'Plain fallback',
+      html: '<p>Inline <img src="cid:logo"></p>',
+      attachments: [
+        {
+          filename: 'logo.txt',
+          content: Buffer.from('inline logo').toString('base64'),
+          mimeType: 'text/plain',
+          contentId: 'logo',
+          disposition: 'inline',
+        },
+        {
+          filename: 'plain.txt',
+          content: 'plain ascii attachment',
+          mimeType: 'text/plain',
+          encoding: '7bit',
+        },
+        {
+          filename: 'utf8.txt',
+          content: 'ümlaut attachment',
+          mimeType: 'text/plain',
+          encoding: 'quoted-printable',
+        },
+      ],
+    })
+
+    const data = email.getEmailData()
+    expect(data).toContain('Content-Type: multipart/related;')
+    expect(data).toContain('Content-ID: <logo>')
+    expect(data).toContain('Content-Disposition: inline; filename="logo.txt";')
+    expect(data).toContain('Content-Transfer-Encoding: 7bit')
+    expect(data).toContain('plain ascii attachment')
+    expect(data).toContain('Content-Transfer-Encoding: quoted-printable')
+    expect(data).toContain('=C3=BCmlaut attachment')
+  })
+
+  it('should reject non-ASCII 7bit attachment content', () => {
+    const email = new Email({
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Invalid 7bit',
+      text: 'Hello',
+      attachments: [
+        {
+          filename: 'utf8.txt',
+          content: 'ümlaut',
+          encoding: '7bit',
+        },
+      ],
+    })
+
+    expect(() => email.getEmailData()).toThrow(
+      '7bit attachment content must contain ASCII only',
+    )
+  })
+
   describe('sent promise', () => {
     it('should resolve when setSent is called', async () => {
       const email = new Email({

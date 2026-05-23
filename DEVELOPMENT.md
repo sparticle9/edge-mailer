@@ -13,11 +13,11 @@ Edge Mailer uses Workers-native APIs and does not require `nodejs_compat`.
 Use `EdgeMailer` from a Cloudflare Worker:
 
 ```ts
-import { EdgeMailer } from 'edge-mailer'
+import { EdgeMailer } from 'edge-mailer/cloudflare'
 
 export default {
   async fetch() {
-    await EdgeMailer.send(
+    const receipt = await EdgeMailer.send(
       {
         host: 'smtp.example.com',
         port: 587,
@@ -38,15 +38,43 @@ export default {
       },
     )
 
-    return Response.json({ ok: true })
+    return Response.json({ ok: true, messageId: receipt.messageId })
   },
 }
+```
+
+Use `DenoMailer` from Deno:
+
+```ts
+import { DenoMailer } from 'edge-mailer/deno'
+
+const receipt = await DenoMailer.send(
+  {
+    host: 'smtp.example.com',
+    port: 587,
+    secure: false,
+    startTls: true,
+    credentials: {
+      username: 'sender@example.com',
+      password: 'smtp-password',
+    },
+    authType: ['plain', 'login'],
+  },
+  {
+    from: 'sender@example.com',
+    to: 'recipient@example.net',
+    subject: 'SMTP from Deno',
+    text: 'Hello from Edge Mailer.',
+  },
+)
+
+console.log(receipt.messageId)
 ```
 
 For Queue consumers or scheduled jobs, reuse one SMTP session per invocation:
 
 ```ts
-import { EdgeMailer, type EmailOptions } from 'edge-mailer'
+import { EdgeMailer, type EmailOptions } from 'edge-mailer/cloudflare'
 
 type Env = {
   SMTP_HOST: string
@@ -92,7 +120,7 @@ export default {
 SMTP failures throw `SMTPError` when the error came from the SMTP session.
 
 ```ts
-import { EdgeMailer, SMTPError } from 'edge-mailer'
+import { EdgeMailer, SMTPError } from 'edge-mailer/cloudflare'
 
 try {
   await EdgeMailer.send(config, email)
@@ -101,6 +129,7 @@ try {
     console.log(error.stage)
     console.log(error.command)
     console.log(error.responseCode)
+    console.log(error.enhancedStatusCode)
     console.log(error.transient)
   }
   throw error
@@ -124,6 +153,22 @@ Run the unit tests:
 pnpm test -- --run
 ```
 
+Run the SMTP core tests against a real local SMTP server:
+
+```sh
+pnpm run test:smtp-core
+```
+
+Run Deno checks:
+
+```sh
+pnpm run check:deno
+pnpm run test:deno
+```
+
+The Deno sample owns its own `sample/deno-smtp/deno.json`; the repo root does
+not use a root Deno config.
+
 Build the package:
 
 ```sh
@@ -136,17 +181,70 @@ Format the repo:
 pnpm run format
 ```
 
+## Test Layout
+
+Tests are grouped by runtime purpose:
+
+- `test/unit/`: Cloudflare-pool Vitest unit tests and runtime boundary checks.
+- `test/smtp-core/`: Node Vitest tests for shared SMTP session behavior against
+  a real local SMTP server.
+- `test/deno/`: Deno-native connector tests.
+- `test/cloudflare-worker/`: Wrangler Worker smoke harness used by the SMTP
+  smoke script.
+
+## Runtime Samples
+
+Samples live under `sample/`.
+
+Run the Cloudflare Worker sample from the repo root:
+
+```sh
+pnpm run test:smoke:cloudflare
+```
+
+Run the Deno direct SMTP smoke from the repo root:
+
+```sh
+pnpm run test:smoke:deno
+```
+
+Run the Deno HTTP sample locally:
+
+```sh
+direnv exec . sh -c 'cd sample/deno-smtp && deno task serve'
+```
+
+Runtime sample quickstarts and hosted deployment commands live in
+[sample](sample), [sample/cloudflare-worker-smtp](sample/cloudflare-worker-smtp),
+and [sample/deno-smtp](sample/deno-smtp).
+
+Deno Deploy v2 must use the current `deno deploy` CLI. Deploy v2 runs the
+standard Deno runtime with `--allow-all`; custom Deno runtime flags cannot be
+passed. Deno Deploy support remains experimental until the live smoke matrix and
+operational guidance are broader than the current single-app SMTP acceptance
+proof.
+
+## SMTP Core Server Suite
+
+`pnpm run test:smtp-core` starts a local SMTP server with Nodemailer's
+`smtp-server` package. This is a real SMTP parser/server for the shared SMTP
+core and covers AUTH, implicit TLS, STARTTLS, PIPELINING, SIZE, 8BITMIME,
+SMTPUTF8, REQUIRETLS, DSN, and RSET recovery without using external
+credentials.
+
 ## SMTP Smoke
 
-Create `test/env.smtp-smoke` locally. The file is ignored by git.
+Put real smoke credentials in local `.env`; `.envrc` loads them through direnv.
+Do not commit real credentials.
 
 ```env
 SMTP_HOST=smtp.example.com
 SMTP_USERNAME=sender@example.com
 SMTP_PASSWORD=secret
-SMTP_FROM=sender@example.com
-SMTP_TO=recipient@example.net
+TEST_RECIPIENT_EMAIL=recipient@example.net
 SMTP_AUTH_TYPE=plain,login
+SMTP_POOL_MAX_CONNECTIONS=1
+SMTP_POOL_MAX_MESSAGES_PER_CONNECTION=20
 ```
 
 Run the smoke harness:
@@ -157,6 +255,14 @@ pnpm run test:smoke:smtp
 
 The smoke harness starts a local Wrangler Worker, sends through port `587`
 with STARTTLS, then sends through port `465` with implicit TLS.
+
+Expected emails for `pnpm run test:smoke:smtp`:
+
+| Count | Recipient                           | Subject                                              |
+| ----- | ----------------------------------- | ---------------------------------------------------- |
+| 1     | `SMTP_TO` or `TEST_RECIPIENT_EMAIL` | `[edge-mailer smoke] 587 text <ISO timestamp>`       |
+| 1     | `SMTP_TO` or `TEST_RECIPIENT_EMAIL` | `[edge-mailer smoke] 587 html <ISO timestamp>`       |
+| 1     | `SMTP_TO` or `TEST_RECIPIENT_EMAIL` | `[edge-mailer smoke] 465 attachment <ISO timestamp>` |
 
 ## Reports
 
