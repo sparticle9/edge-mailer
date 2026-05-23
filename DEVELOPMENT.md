@@ -127,6 +127,7 @@ try {
     console.log(error.stage)
     console.log(error.command)
     console.log(error.responseCode)
+    console.log(error.enhancedStatusCode)
     console.log(error.transient)
   }
   throw error
@@ -150,14 +151,21 @@ Run the unit tests:
 pnpm test -- --run
 ```
 
+Run the SMTP core tests against a real local SMTP server:
+
+```sh
+pnpm run test:smtp-core
+```
+
 Run Deno checks:
 
 ```sh
-deno check
-deno test
+pnpm run check:deno
+pnpm run test:deno
 ```
 
-The same checks are available through `deno task check` and `deno task test`.
+The Deno sample owns its own `sample/deno-smtp/deno.json`; the repo root does
+not use a root Deno config.
 
 Build the package:
 
@@ -170,6 +178,17 @@ Format the repo:
 ```sh
 pnpm run format
 ```
+
+## Test Layout
+
+Tests are grouped by runtime purpose:
+
+- `test/unit/`: Cloudflare-pool Vitest unit tests and runtime boundary checks.
+- `test/smtp-core/`: Node Vitest tests for shared SMTP session behavior against
+  a real local SMTP server.
+- `test/deno/`: Deno-native connector tests.
+- `test/cloudflare-worker/`: Wrangler Worker smoke harness used by the SMTP
+  smoke script.
 
 ## Runtime Samples
 
@@ -184,13 +203,13 @@ direnv exec . pnpm exec wrangler dev --config sample/cloudflare-worker-smtp/wran
 Run the Deno direct SMTP smoke from the repo root:
 
 ```sh
-direnv exec . deno task smoke:deno
+pnpm run test:smoke:deno
 ```
 
 Run the Deno HTTP sample locally:
 
 ```sh
-direnv exec . deno task serve:deno
+direnv exec . sh -c 'cd sample/deno-smtp && deno task serve'
 ```
 
 Deno Deploy v2 must use the current `deno deploy` CLI. Deploy v2 runs the
@@ -198,11 +217,18 @@ standard Deno runtime with `--allow-all`; custom Deno runtime flags cannot be
 passed. Deno Deploy support remains experimental until the deployed sample sends
 through real SMTP credentials.
 
+## SMTP Core Server Suite
+
+`pnpm run test:smtp-core` starts a local SMTP server with Nodemailer's
+`smtp-server` package. This is a real SMTP parser/server for the shared SMTP
+core and covers AUTH, implicit TLS, STARTTLS, PIPELINING, SIZE, 8BITMIME,
+SMTPUTF8, REQUIRETLS, DSN, and RSET recovery without using external
+credentials.
+
 ## SMTP Smoke
 
-Create `test/env.smtp-smoke` locally for the Cloudflare smoke harness. The file
-is ignored by git. For Deno and deploy smokes, put credentials in local `.env`
-and run commands through `direnv exec .`.
+Put real smoke credentials in local `.env`; `.envrc` loads them through direnv.
+Do not commit real credentials.
 
 ```env
 SMTP_HOST=smtp.example.com

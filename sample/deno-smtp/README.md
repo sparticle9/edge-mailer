@@ -18,24 +18,27 @@ Optional env names:
 - `SMTP_RESPONSE_TIMEOUT_MS`
 - `SMTP_SOCKET_TIMEOUT_MS`
 
-Run a direct local smoke from the repo root:
+This sample owns its own `deno.json` because it is a runnable Deno app. The
+package repo root intentionally does not have a root Deno config.
+
+Run a direct local smoke from the repo root so direnv can load local `.env`:
 
 ```sh
-direnv exec . deno task smoke:deno
+direnv exec . sh -c 'cd sample/deno-smtp && deno task smoke'
 ```
 
 Run the local HTTP sample:
 
 ```sh
-direnv exec . deno task serve:deno
+direnv exec . sh -c 'cd sample/deno-smtp && deno task serve'
 ```
 
 Deno Deploy v2 uses the standard Deno runtime with `--allow-all`; custom Deno runtime flags cannot be passed. Use the current `deno deploy` CLI, not `deployctl`.
 
-Example deploy command from the repo root:
+Example deploy command:
 
 ```sh
-direnv exec . deno deploy --token "$DENO_ACCESS_TOKEN" --org "$DENO_DEPLOY_ORG" --app "$DENO_DEPLOY_APP" sample/deno-smtp
+direnv exec . deno deploy --config sample/deno-smtp/deno.json --token "$DENO_ACCESS_TOKEN" --org "$DENO_DEPLOY_ORG" --app "$DENO_DEPLOY_APP" sample/deno-smtp/main.ts
 ```
 
 Deno Deploy remains experimental for this package until that deployed sample sends through real SMTP credentials.

@@ -35,6 +35,32 @@ export function encodeHeader(text: string): string {
 
 export type User = { name?: string; email: string }
 
+export type DsnOptions = {
+  envelopeId?: string
+  RET?: {
+    HEADERS?: boolean
+    FULL?: boolean
+  }
+  NOTIFY?: {
+    DELAY?: boolean
+    FAILURE?: boolean
+    SUCCESS?: boolean
+    NEVER?: boolean
+  }
+  ORCPT?: string
+}
+
+export type MailBodyType = '7BIT' | '8BITMIME'
+
+export type MailEnvelopeOptions = {
+  from?: string
+  to?: string | string[]
+  size?: number
+  body?: MailBodyType
+  smtpUtf8?: boolean
+  requireTls?: boolean
+}
+
 export type EmailOptions = {
   from: string | User
   to: string | string[] | User | User[]
@@ -46,18 +72,8 @@ export type EmailOptions = {
   html?: string
   headers?: Record<string, string>
   attachments?: { filename: string; content: string; mimeType?: string }[]
-  dsnOverride?: {
-    envelopeId?: string
-    RET?: {
-      HEADERS?: boolean
-      FULL?: boolean
-    }
-    NOTIFY?: {
-      DELAY?: boolean
-      FAILURE?: boolean
-      SUCCESS?: boolean
-    }
-  }
+  envelope?: MailEnvelopeOptions
+  dsnOverride?: DsnOptions
 }
 
 export class Email {
@@ -70,18 +86,10 @@ export class Email {
   public readonly subject: string
   public readonly text?: string
   public readonly html?: string
-  public readonly dsnOverride?: {
-    envelopeId?: string
-    RET?: {
-      HEADERS?: boolean
-      FULL?: boolean
-    }
-    NOTIFY?: {
-      DELAY?: boolean
-      FAILURE?: boolean
-      SUCCESS?: boolean
-    }
+  public readonly envelope?: Omit<MailEnvelopeOptions, 'to'> & {
+    to?: string[]
   }
+  public readonly dsnOverride?: DsnOptions
 
   public readonly attachments?: {
     filename: string
@@ -121,6 +129,12 @@ export class Email {
     this.text = options.text
     this.html = options.html
     this.attachments = options.attachments
+    this.envelope = options.envelope
+      ? {
+          ...options.envelope,
+          to: Email.toEnvelopeRecipients(options.envelope.to),
+        }
+      : undefined
     this.dsnOverride = options.dsnOverride
     this.headers = options.headers || {}
   }
@@ -143,6 +157,15 @@ export class Email {
     } else {
       return [user]
     }
+  }
+
+  private static toEnvelopeRecipients(
+    recipients: string | string[] | undefined,
+  ): string[] | undefined {
+    if (!recipients) {
+      return
+    }
+    return Array.isArray(recipients) ? recipients : [recipients]
   }
 
   public getEmailData() {
@@ -211,7 +234,9 @@ export class Email {
 
     const safeEmailData = this.applyDotStuffing(emailData)
 
-    return `${safeEmailData}\r\n.\r\n`
+    return safeEmailData.endsWith('\r\n')
+      ? `${safeEmailData}.\r\n`
+      : `${safeEmailData}\r\n.\r\n`
   }
 
   private applyDotStuffing(data: string): string {

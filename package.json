@@ -27,6 +27,7 @@
   },
   "files": [
     "dist",
+    "CLIENT-INTEGRATION.md",
     "README.md"
   ],
   "sideEffects": false,
@@ -42,10 +43,11 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest",
-    "test:deno": "deno task test",
-    "check:deno": "deno task check",
-    "test:smoke:deno": "direnv exec . deno task smoke:deno",
-    "test:smoke:smtp": "node scripts/smtp-smoke.mjs",
+    "test:smtp-core": "vitest --config vitest.smtp.config.mts --run",
+    "test:deno": "deno test --config sample/deno-smtp/deno.json test/deno",
+    "check:deno": "deno check --config sample/deno-smtp/deno.json src/deno.ts sample/deno-smtp/main.ts sample/deno-smtp/smoke.ts test/deno/deno-connector.test.ts",
+    "test:smoke:deno": "direnv exec . sh -c 'cd sample/deno-smtp && deno task smoke'",
+    "test:smoke:smtp": "direnv exec . node scripts/smtp-smoke.mjs",
     "format": "prettier '**/*.{json,ts,js,cjs,mjs,md}' --write --ignore-path .gitignore"
   },
   "devDependencies": {
@@ -53,9 +55,11 @@
     "@cloudflare/workers-types": "^4.20260521.1",
     "@types/libqp": "^1.1.3",
     "@types/node": "^24.12.4",
+    "@types/smtp-server": "^3.5.13",
     "letterparser": "^0.1.8",
     "libqp": "^2.1.1",
     "prettier": "^3.8.3",
+    "smtp-server": "^3.18.4",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vite": "7.3.1",

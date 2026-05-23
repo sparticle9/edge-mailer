@@ -15,11 +15,12 @@ Supported today:
 - SMTP over implicit TLS on port `465`.
 - SMTP with STARTTLS on port `587`.
 - `PLAIN`, `LOGIN`, and legacy `CRAM-MD5` authentication.
+- SMTP extensions: `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`,
+  `REQUIRETLS`, and `DSN` when advertised by the server.
 - Plain text, HTML, custom headers, CC, BCC, reply-to, and base64 attachments.
-- DSN options when the server advertises support.
 - Batch sending over one SMTP session.
-- Structured SMTP errors with stage, command, response code, and transient
-  classification.
+- Structured SMTP errors with stage, command, response code, enhanced status
+  code, and transient classification.
 
 Experimental:
 
@@ -35,7 +36,9 @@ Not supported yet:
 - Message streaming for large attachments.
 - HTTP provider SDK wrappers.
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for quickstart, local checks, smoke
+See [CLIENT-INTEGRATION.md](CLIENT-INTEGRATION.md) for client-side runtime
+imports, SMTP options, envelope/DSN usage, and real-server functional
+verification. See [DEVELOPMENT.md](DEVELOPMENT.md) for local checks, smoke
 testing, runtime samples, and reporting guidance.
 
 ## Runtime Entrypoints

@@ -1,41 +1,16 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 
-const envPath = process.env.SMTP_SMOKE_ENV || 'test/env.smtp-smoke'
 const workerPort = Number(process.env.SMTP_SMOKE_WORKER_PORT || 8788)
 const baseUrl = `http://127.0.0.1:${workerPort}`
-
-function parseEnv(content) {
-  const env = {}
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) {
-      continue
-    }
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
-    if (!match) {
-      continue
-    }
-    let value = match[2].trim()
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1)
-    }
-    env[match[1]] = value
-  }
-  return env
-}
 
 function required(env, keys) {
   const missing = keys.filter(key => !env[key])
   if (missing.length) {
     throw new Error(
-      `Missing required SMTP smoke env keys in ${envPath}: ${missing.join(', ')}`,
+      `Missing required SMTP smoke environment keys: ${missing.join(', ')}`,
     )
   }
 }
@@ -122,7 +97,7 @@ function emailBase(env, subject) {
 }
 
 async function main() {
-  const env = { ...process.env, ...parseEnv(await readFile(envPath, 'utf8')) }
+  const env = { ...process.env }
   const username = env.SMTP_USERNAME || env.SMTP_USER
   env.SMTP_USERNAME = username
   required(env, ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_TO'])
@@ -134,7 +109,7 @@ async function main() {
       'wrangler',
       'dev',
       '--config',
-      'test/wrangler.toml',
+      'test/cloudflare-worker/wrangler.toml',
       '--ip',
       '127.0.0.1',
       '--port',

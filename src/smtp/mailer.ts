@@ -1,5 +1,5 @@
 import { decode, encode } from '../utils.ts'
-import { Email, type EmailOptions } from '../email.ts'
+import { Email, type DsnOptions, type EmailOptions } from '../email.ts'
 import Logger, { LogLevel } from '../logger.ts'
 import type { EdgeSocket, EdgeSocketConnector } from '../runtime/socket.ts'
 
@@ -15,6 +15,7 @@ export type BatchSendOptions = {
 }
 export type BatchSendResult = PromiseSettledResult<void>[]
 export type PipeliningMode = 'auto' | false
+export type SmtpBodyType = '7BIT' | '8BITMIME'
 export type SMTPStage =
   | 'connect'
   | 'greet'
@@ -43,6 +44,7 @@ export class SMTPError extends Error {
   public readonly command?: string
   public readonly response?: string
   public readonly responseCode?: number
+  public readonly enhancedStatusCode?: string
   public readonly transient: boolean
   public override readonly cause?: unknown
 
@@ -56,6 +58,9 @@ export class SMTPError extends Error {
 
     const match = options.response?.match(/^(\d{3})/)
     this.responseCode = match ? Number(match[1]) : undefined
+    this.enhancedStatusCode = options.response
+      ?.match(/^\d{3}[ -]([245]\.\d{1,3}\.\d{1,3})\b/)
+      ?.at(1)
     this.transient = this.responseCode
       ? this.responseCode >= 400 && this.responseCode < 500
       : false
@@ -203,6 +208,22 @@ function base64ToBytes(value: string) {
   return binaryStringToBytes(atob(value))
 }
 
+function xtext(value: string) {
+  let result = ''
+  for (const byte of encode(value)) {
+    if (byte >= 33 && byte <= 126 && byte !== 43 && byte !== 61) {
+      result += String.fromCharCode(byte)
+    } else {
+      result += `+${byte.toString(16).toUpperCase().padStart(2, '0')}`
+    }
+  }
+  return result
+}
+
+function normalizeOrcpt(value: string) {
+  return value.includes(';') ? value : `rfc822;${value}`
+}
+
 export type EdgeMailerOptions = {
   host: string
   port: number
@@ -212,25 +233,15 @@ export type EdgeMailerOptions = {
   authType?: AuthType | AuthType[]
   logLevel?: LogLevel
   pipelining?: PipeliningMode
-  dsn?:
-    | {
-        RET?:
-          | {
-              HEADERS?: boolean
-              FULL?: boolean
-            }
-          | undefined
-        NOTIFY?:
-          | {
-              DELAY?: boolean
-              FAILURE?: boolean
-              SUCCESS?: boolean
-            }
-          | undefined
-      }
-    | undefined
+  dsn?: DsnOptions | undefined
   socketTimeoutMs?: number
   responseTimeoutMs?: number
+}
+
+type PreparedEmail = {
+  email: Email
+  data: string
+  size: number
 }
 
 export class SmtpMailer {
@@ -252,24 +263,7 @@ export class SmtpMailer {
 
   private readonly logger: Logger
 
-  private readonly dsn:
-    | {
-        envelopeId?: string | undefined
-        RET?:
-          | {
-              HEADERS?: boolean
-              FULL?: boolean
-            }
-          | undefined
-        NOTIFY?:
-          | {
-              DELAY?: boolean
-              FAILURE?: boolean
-              SUCCESS?: boolean
-            }
-          | undefined
-      }
-    | undefined
+  private readonly dsn: DsnOptions | undefined
 
   private active = false
   private closeError?: Error
@@ -279,6 +273,11 @@ export class SmtpMailer {
 
   /** SMTP server capabilities **/
   private supportsDSN = false
+  private supportsSize = false
+  private maxMessageSize?: number
+  private supports8BitMime = false
+  private supportsSmtpUtf8 = false
+  private supportsRequireTls = false
   private allowAuth = false
   private authTypeSupported: AuthType[] = []
   private supportsStartTls = false
@@ -400,15 +399,16 @@ export class SmtpMailer {
 
   private async sendEmail(email: Email) {
     this.emailSending = email
+    const prepared = this.prepareEmail(email)
     try {
       if (this.canPipeline()) {
-        await this.envelopePipelined(email)
+        await this.envelopePipelined(prepared)
       } else {
-        await this.mail(email)
-        await this.rcpt(email)
+        await this.mail(prepared)
+        await this.rcpt(prepared)
         await this.data()
       }
-      await this.body(email)
+      await this.body(prepared)
       email.setSent()
     } catch (error) {
       const sendError =
@@ -442,6 +442,15 @@ export class SmtpMailer {
 
   private canPipeline(): boolean {
     return this.pipelining === 'auto' && this.supportsPipelining
+  }
+
+  private prepareEmail(email: Email): PreparedEmail {
+    const data = email.getEmailData()
+    return {
+      email,
+      data,
+      size: Math.max(0, encode(data).length - encode('.\r\n').length),
+    }
   }
 
   private async readTimeout(
@@ -673,6 +682,11 @@ export class SmtpMailer {
 
   private resetCapabilities() {
     this.supportsDSN = false
+    this.supportsSize = false
+    this.maxMessageSize = undefined
+    this.supports8BitMime = false
+    this.supportsSmtpUtf8 = false
+    this.supportsRequireTls = false
     this.allowAuth = false
     this.authTypeSupported = []
     this.supportsStartTls = false
@@ -681,26 +695,44 @@ export class SmtpMailer {
 
   private parseCapabilities(response: string) {
     this.resetCapabilities()
-    if (/[ -]AUTH\b/i.test(response)) {
-      this.allowAuth = true
-    }
-    if (/[ -]AUTH(?:(\s+|=)[^\n]*\s+|\s+|=)PLAIN/i.test(response)) {
-      this.authTypeSupported.push('plain')
-    }
-    if (/[ -]AUTH(?:(\s+|=)[^\n]*\s+|\s+|=)LOGIN/i.test(response)) {
-      this.authTypeSupported.push('login')
-    }
-    if (/[ -]AUTH(?:(\s+|=)[^\n]*\s+|\s+|=)CRAM-MD5/i.test(response)) {
-      this.authTypeSupported.push('cram-md5')
-    }
-    if (/[ -]STARTTLS\b/i.test(response)) {
-      this.supportsStartTls = true
-    }
-    if (/[ -]DSN\b/i.test(response)) {
-      this.supportsDSN = true
-    }
-    if (/[ -]PIPELINING\b/i.test(response)) {
-      this.supportsPipelining = true
+
+    for (const line of response.split(/\r?\n/)) {
+      const match = line.match(/^250[ -]([A-Z0-9][A-Z0-9-]*)(?:[ =](.*))?$/i)
+      if (!match) {
+        continue
+      }
+
+      const keyword = match[1].toUpperCase()
+      const value = match[2]?.trim() || ''
+
+      if (keyword === 'AUTH') {
+        this.allowAuth = true
+        for (const method of value.split(/\s+/)) {
+          const normalized = method.toLowerCase()
+          if (
+            normalized === 'plain' ||
+            normalized === 'login' ||
+            normalized === 'cram-md5'
+          ) {
+            this.authTypeSupported.push(normalized)
+          }
+        }
+      } else if (keyword === 'STARTTLS') {
+        this.supportsStartTls = true
+      } else if (keyword === 'DSN') {
+        this.supportsDSN = true
+      } else if (keyword === 'PIPELINING') {
+        this.supportsPipelining = true
+      } else if (keyword === 'SIZE') {
+        this.supportsSize = true
+        this.maxMessageSize = value ? Number(value) : undefined
+      } else if (keyword === '8BITMIME') {
+        this.supports8BitMime = true
+      } else if (keyword === 'SMTPUTF8') {
+        this.supportsSmtpUtf8 = true
+      } else if (keyword === 'REQUIRETLS') {
+        this.supportsRequireTls = true
+      }
     }
   }
 
@@ -709,10 +741,7 @@ export class SmtpMailer {
       return
     }
     if (!this.credentials) {
-      throw new SMTPError(
-        'smtp server requires authentication, but no credentials found',
-        { stage: 'auth' },
-      )
+      return
     }
     if (
       this.authTypeSupported.includes('plain') &&
@@ -828,8 +857,8 @@ export class SmtpMailer {
     }
   }
 
-  private async mail(email: Email) {
-    const message = this.mailCommand(email)
+  private async mail(prepared: PreparedEmail) {
+    const message = this.mailCommand(prepared)
     await this.writeLine(message)
     const response = await this.readTimeout('mail', message)
     if (!response.startsWith('2')) {
@@ -841,10 +870,10 @@ export class SmtpMailer {
     }
   }
 
-  private async rcpt(email: Email) {
-    const allRecipients = this.recipients(email)
-    for (let user of allRecipients) {
-      const message = this.rcptCommand(user.email, email)
+  private async rcpt(prepared: PreparedEmail) {
+    const allRecipients = this.recipients(prepared.email)
+    for (let recipient of allRecipients) {
+      const message = this.rcptCommand(recipient, prepared.email)
       await this.writeLine(message)
       const rcptResponse = await this.readTimeout('rcpt', message)
       if (!rcptResponse.startsWith('2')) {
@@ -870,10 +899,10 @@ export class SmtpMailer {
     }
   }
 
-  private async envelopePipelined(email: Email) {
-    const mailCommand = this.mailCommand(email)
-    const recipientCommands = this.recipients(email).map(user =>
-      this.rcptCommand(user.email, email),
+  private async envelopePipelined(prepared: PreparedEmail) {
+    const mailCommand = this.mailCommand(prepared)
+    const recipientCommands = this.recipients(prepared.email).map(recipient =>
+      this.rcptCommand(recipient, prepared.email),
     )
     const dataCommand = 'DATA'
 
@@ -918,8 +947,8 @@ export class SmtpMailer {
     }
   }
 
-  private async body(email: Email) {
-    await this.write(email.getEmailData())
+  private async body(prepared: PreparedEmail) {
+    await this.write(prepared.data)
     const response = await this.readTimeout('body', '<message body>')
     if (!response.startsWith('2')) {
       throw new SMTPError('Failed send email body: ' + response, {
@@ -943,30 +972,111 @@ export class SmtpMailer {
     }
   }
 
-  private mailCommand(email: Email): string {
-    let message = `MAIL FROM: <${email.from.email}>`
-    if (this.supportsDSN) {
-      message += ` ${this.retBuilder(email)}`
-      if (email.dsnOverride?.envelopeId) {
-        message += ` ENVID=${email.dsnOverride.envelopeId}`
-      }
+  private mailCommand(prepared: PreparedEmail): string {
+    const email = prepared.email
+    const message = [`MAIL FROM: <${this.mailFrom(email)}>`]
+    const parameters = this.mailParameters(prepared)
+    if (parameters.length) {
+      message.push(parameters.join(' '))
     }
-    return message.trim()
+    return message.join(' ')
   }
 
   private rcptCommand(emailAddress: string, email: Email): string {
     let message = `RCPT TO: <${emailAddress}>`
-    if (this.supportsDSN) {
-      message += this.notificationBuilder(email)
+    const parameters = this.rcptParameters(email)
+    if (parameters.length) {
+      message += ` ${parameters.join(' ')}`
     }
     return message
   }
 
   private recipients(email: Email) {
-    return [...email.to, ...(email.cc || []), ...(email.bcc || [])]
+    return (
+      email.envelope?.to || [
+        ...email.to.map(user => user.email),
+        ...(email.cc || []).map(user => user.email),
+        ...(email.bcc || []).map(user => user.email),
+      ]
+    )
   }
 
-  private notificationBuilder(email: Email) {
+  private mailFrom(email: Email) {
+    return email.envelope?.from || email.from.email
+  }
+
+  private mailParameters(prepared: PreparedEmail) {
+    const email = prepared.email
+    const parameters: string[] = []
+    const envelope = email.envelope
+
+    if (this.supportsSize) {
+      parameters.push(`SIZE=${envelope?.size ?? prepared.size}`)
+    }
+
+    const body = envelope?.body?.toUpperCase() as SmtpBodyType | undefined
+    if (body) {
+      if (!this.supports8BitMime) {
+        throw new SMTPError(`${body} requires 8BITMIME support`, {
+          stage: 'mail',
+          command: 'MAIL FROM',
+        })
+      }
+      parameters.push(`BODY=${body}`)
+    }
+
+    if (this.needsSmtpUtf8(email)) {
+      if (!this.supportsSmtpUtf8) {
+        throw new SMTPError('SMTPUTF8 is not supported by the SMTP server', {
+          stage: 'mail',
+          command: 'MAIL FROM',
+        })
+      }
+      parameters.push('SMTPUTF8')
+    }
+
+    if (envelope?.requireTls) {
+      if (!this.supportsRequireTls) {
+        throw new SMTPError('REQUIRETLS is not supported by the SMTP server', {
+          stage: 'mail',
+          command: 'MAIL FROM',
+        })
+      }
+      parameters.push('REQUIRETLS')
+    }
+
+    if (this.supportsDSN && this.hasDsnRequest(email)) {
+      const ret = this.retParameter(email)
+      if (ret) {
+        parameters.push(ret)
+      }
+      const envelopeId = email.dsnOverride?.envelopeId || this.dsn?.envelopeId
+      if (envelopeId) {
+        parameters.push(`ENVID=${xtext(envelopeId)}`)
+      }
+    }
+
+    return parameters
+  }
+
+  private rcptParameters(email: Email) {
+    if (!this.supportsDSN || !this.hasDsnRequest(email)) {
+      return []
+    }
+
+    const parameters = [this.notificationParameter(email)]
+    const orcpt = email.dsnOverride?.ORCPT || this.dsn?.ORCPT
+    if (orcpt) {
+      parameters.push(`ORCPT=${xtext(normalizeOrcpt(orcpt))}`)
+    }
+    return parameters
+  }
+
+  private notificationParameter(email: Email) {
+    if (email.dsnOverride?.NOTIFY?.NEVER || this.dsn?.NOTIFY?.NEVER) {
+      return 'NOTIFY=NEVER'
+    }
+
     const notifications: string[] = []
     if (
       (email.dsnOverride?.NOTIFY && email.dsnOverride.NOTIFY.SUCCESS) ||
@@ -987,25 +1097,46 @@ export class SmtpMailer {
       notifications.push('DELAY')
     }
     return notifications.length > 0
-      ? ` NOTIFY=${notifications.join(',')}`
-      : ' NOTIFY=NEVER'
+      ? `NOTIFY=${notifications.join(',')}`
+      : 'NOTIFY=NEVER'
   }
 
-  private retBuilder(email: Email) {
-    const ret: string[] = []
-    if (
-      (email.dsnOverride?.RET && email.dsnOverride.RET.HEADERS) ||
-      (!email.dsnOverride?.RET && this.dsn?.RET?.HEADERS)
-    ) {
-      ret.push('HDRS')
-    }
+  private retParameter(email: Email) {
     if (
       (email.dsnOverride?.RET && email.dsnOverride.RET.FULL) ||
       (!email.dsnOverride?.RET && this.dsn?.RET?.FULL)
     ) {
-      ret.push('FULL')
+      return 'RET=FULL'
     }
-    return ret.length > 0 ? `RET=${ret.join(',')}` : ''
+    if (
+      (email.dsnOverride?.RET && email.dsnOverride.RET.HEADERS) ||
+      (!email.dsnOverride?.RET && this.dsn?.RET?.HEADERS)
+    ) {
+      return 'RET=HDRS'
+    }
+    return undefined
+  }
+
+  private hasDsnRequest(email: Email) {
+    return Boolean(
+      email.dsnOverride?.envelopeId ||
+      email.dsnOverride?.RET ||
+      email.dsnOverride?.NOTIFY ||
+      email.dsnOverride?.ORCPT ||
+      this.dsn?.envelopeId ||
+      this.dsn?.RET ||
+      this.dsn?.NOTIFY ||
+      this.dsn?.ORCPT,
+    )
+  }
+
+  private needsSmtpUtf8(email: Email) {
+    return (
+      !!email.envelope?.smtpUtf8 ||
+      [this.mailFrom(email), ...this.recipients(email)].some(value =>
+        /[^\x00-\x7F]/.test(value),
+      )
+    )
   }
 
   protected async abortConnection(error: unknown) {

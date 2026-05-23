@@ -1,6 +1,6 @@
-import { EmailOptions } from '../src/email'
-import { LogLevel } from '../src/logger'
-import { EdgeMailer, type EdgeMailerOptions } from '../src/mailer'
+import { EmailOptions } from '../../src/email'
+import { LogLevel } from '../../src/logger'
+import { EdgeMailer, type EdgeMailerOptions } from '../../src/mailer'
 
 type SmokeRequest =
   | {
