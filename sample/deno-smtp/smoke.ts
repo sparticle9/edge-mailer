@@ -84,9 +84,18 @@ const email: EmailOptions = {
   reply: env('SMTP_REPLY_TO') || from,
   subject: `[edge-mailer smoke] ${marker}`,
   text: `SMTP smoke from edge-mailer through the Deno runtime.\n\nMarker: ${marker}`,
+  html: `<p>SMTP smoke from edge-mailer through the Deno runtime.</p><p>Marker: ${marker}</p>`,
   headers: {
     'X-Edge-Mailer-Smoke': marker,
   },
+  attachments: [
+    {
+      filename: 'edge-mailer-smoke.txt',
+      content: `Deno smoke attachment\nMarker: ${marker}\n`,
+      mimeType: 'text/plain',
+      encoding: '7bit',
+    },
+  ],
 }
 
 const pool = DenoMailer.createPool(config)

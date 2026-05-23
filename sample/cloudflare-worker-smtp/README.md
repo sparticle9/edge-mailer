@@ -45,9 +45,10 @@ curl -X POST http://127.0.0.1:8787
 ```
 
 The POST response includes the subject marker and SMTP receipt message id after
-the server accepts the message. The sample sends through a bounded pool. That
-confirms the SMTP transaction completed; final inbox delivery can still depend
-on provider queueing, spam filtering, sender policy, or the recipient mailbox.
+the server accepts the message. The sample sends text, HTML, and a small `7bit`
+attachment through a bounded pool. That confirms the SMTP transaction completed;
+final inbox delivery can still depend on provider queueing, spam filtering,
+sender policy, or the recipient mailbox.
 
 Cloudflare Workers cannot open outbound TCP sockets to port `25`; use an SMTP
 submission port such as `587` with STARTTLS or `465` with implicit TLS.

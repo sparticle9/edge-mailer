@@ -98,11 +98,21 @@ function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
     text:
       body.text ||
       `Hello from the edge-mailer Cloudflare Worker sample.\n\nMarker: ${marker}`,
-    html: body.html,
+    html:
+      body.html ||
+      `<p>Hello from the edge-mailer Cloudflare Worker sample.</p><p>Marker: ${marker}</p>`,
     headers: {
       'X-Edge-Mailer-Sample': marker,
       ...body.headers,
     },
+    attachments: body.attachments || [
+      {
+        filename: 'edge-mailer-sample.txt',
+        content: `Cloudflare sample attachment\nMarker: ${marker}\n`,
+        mimeType: 'text/plain',
+        encoding: '7bit',
+      },
+    ],
   }
 }
 

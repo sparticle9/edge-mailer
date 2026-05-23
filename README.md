@@ -17,7 +17,9 @@ Supported today:
 - `PLAIN`, `LOGIN`, and legacy `CRAM-MD5` authentication.
 - SMTP extensions: `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`,
   `REQUIRETLS`, and `DSN` when advertised by the server.
-- Plain text, HTML, custom headers, CC, BCC, reply-to, and base64 attachments.
+- Plain text, HTML, custom headers, CC, BCC, reply-to, inline/CID
+  attachments, and attachment transfer encodings `base64`, `7bit`, and
+  `quoted-printable`.
 - Batch sending over one SMTP session and bounded connection pools.
 - DKIM signing with RSA private keys.
 - Structured send receipts with message id, envelope, accepted recipients, final
@@ -36,7 +38,7 @@ Not supported yet:
 - Direct SMTP from Vercel Edge or other runtimes without outbound TCP sockets.
 - XOAUTH2.
 - Message streaming for large attachments.
-- Inline attachments and per-attachment transfer encoding controls.
+- ICS/calendar invite helpers.
 - HTTP provider SDK wrappers.
 
 See [CLIENT-INTEGRATION.md](CLIENT-INTEGRATION.md) for client-side runtime
@@ -66,6 +68,6 @@ Runnable samples live in [sample](sample):
 ## Roadmap
 
 Cloudflare Workers remains the production baseline. Planned work includes
-stronger MIME/XOAUTH2 support, better observation events, Deno Deploy v2 smoke
-coverage, and a Worker relay path for runtimes that cannot open SMTP sockets
-directly.
+XOAUTH2 support, streaming attachment support, calendar helpers, better
+observation events, Deno Deploy v2 smoke coverage, and a Worker relay path for
+runtimes that cannot open SMTP sockets directly.

@@ -33,10 +33,11 @@ Run a direct local smoke from the repo root so direnv can load local `.env`:
 direnv exec . sh -c 'cd sample/deno-smtp && deno task smoke'
 ```
 
-The smoke sends through a bounded pool and prints a marker plus the SMTP receipt
-message id after the server accepts the message. That confirms the SMTP
-transaction completed; final inbox delivery can still depend on provider
-queueing, spam filtering, sender policy, or the recipient mailbox.
+The smoke sends text, HTML, and a small `7bit` attachment through a bounded pool,
+then prints a marker plus the SMTP receipt message id after the server accepts
+the message. That confirms the SMTP transaction completed; final inbox delivery
+can still depend on provider queueing, spam filtering, sender policy, or the
+recipient mailbox.
 
 Run the local HTTP sample:
 
@@ -56,7 +57,7 @@ direnv exec . deno deploy create --token "$DENO_ACCESS_TOKEN" --org "$DENO_DEPLO
 Deploy an existing app:
 
 ```sh
-direnv exec . deno deploy --config sample/deno-smtp/deno.json --token "$DENO_ACCESS_TOKEN" --org "$DENO_DEPLOY_ORG" --app "$DENO_DEPLOY_APP" --prod .
+direnv exec . deno deploy --token "$DENO_ACCESS_TOKEN" --org "$DENO_DEPLOY_ORG" --app "$DENO_DEPLOY_APP" --prod .
 ```
 
 When deploying from a local development checkout, add `--ignore` flags for any

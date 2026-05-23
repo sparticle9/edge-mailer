@@ -351,6 +351,77 @@ Deno.test(
 )
 
 Deno.test(
+  'DenoMailer sends inline attachments and richer transfer encodings through a real SMTP server',
+  async () => {
+    const server = await startServer()
+    try {
+      await DenoMailer.send(
+        baseConfig(server.port),
+        standardMessage({
+          to: 'mime@example.com',
+          cc: undefined,
+          bcc: undefined,
+          subject: 'Deno rich MIME compatibility',
+          text: 'Plain fallback with inline logo.',
+          html: '<p>Inline <img src="cid:logo"></p>',
+          attachments: [
+            {
+              filename: 'logo.txt',
+              content: btoa('inline logo'),
+              mimeType: 'text/plain',
+              contentId: 'logo',
+              disposition: 'inline',
+            },
+            {
+              filename: 'plain.txt',
+              content: 'plain ascii attachment',
+              mimeType: 'text/plain',
+              encoding: '7bit',
+            },
+            {
+              filename: 'utf8.txt',
+              content: 'ümlaut attachment',
+              mimeType: 'text/plain',
+              encoding: 'quoted-printable',
+            },
+          ],
+        }),
+      )
+
+      const message = server.state.messages[0]?.raw
+      assert(message, 'SMTP server should receive one rich MIME message')
+      assert(
+        message.includes('Content-Type: multipart/related;'),
+        'related MIME wrapper is present',
+      )
+      assert(message.includes('Content-ID: <logo>'), 'Content-ID is present')
+      assert(
+        message.includes('Content-Disposition: inline; filename="logo.txt";'),
+        'inline disposition is present',
+      )
+      assert(
+        message.includes('Content-Transfer-Encoding: 7bit'),
+        '7bit attachment is present',
+      )
+      assert(
+        message.includes('plain ascii attachment'),
+        '7bit attachment body is present',
+      )
+      assert(
+        message.includes('Content-Transfer-Encoding: quoted-printable'),
+        'quoted-printable attachment is present',
+      )
+      assert(
+        message.includes('=C3=BCmlaut attachment'),
+        'quoted-printable attachment body is encoded',
+      )
+    } finally {
+      await server.close()
+    }
+  },
+)
+
+Deno.test(
   'DenoMailer connection pool rotates clients after maxMessagesPerConnection',
   async () => {
     const server = await startServer()

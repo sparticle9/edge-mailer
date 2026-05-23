@@ -61,6 +61,18 @@ export type MailEnvelopeOptions = {
   requireTls?: boolean
 }
 
+export type AttachmentEncoding = 'base64' | 'quoted-printable' | '7bit'
+export type AttachmentDisposition = 'attachment' | 'inline'
+export type EmailAttachment = {
+  filename: string
+  content: string | Uint8Array
+  mimeType?: string
+  contentType?: string
+  encoding?: AttachmentEncoding
+  contentId?: string
+  disposition?: AttachmentDisposition
+}
+
 export type EmailOptions = {
   from: string | User
   to: string | string[] | User | User[]
@@ -71,7 +83,7 @@ export type EmailOptions = {
   text?: string
   html?: string
   headers?: Record<string, string>
-  attachments?: { filename: string; content: string; mimeType?: string }[]
+  attachments?: EmailAttachment[]
   envelope?: MailEnvelopeOptions
   dsnOverride?: DsnOptions
 }
@@ -91,11 +103,7 @@ export class Email {
   }
   public readonly dsnOverride?: DsnOptions
 
-  public readonly attachments?: {
-    filename: string
-    content: string
-    mimeType?: string
-  }[]
+  public readonly attachments?: EmailAttachment[]
 
   public readonly headers: Record<string, string>
 
@@ -187,9 +195,23 @@ export class Email {
     const headers = headersArray.join('\r\n')
 
     let emailData = `${headers}\r\n\r\n`
-    emailData += `--${mixedBoundary}\r\n`
+    const inlineAttachments = (this.attachments || []).filter(
+      attachment => this.attachmentDisposition(attachment) === 'inline',
+    )
+    const regularAttachments = (this.attachments || []).filter(
+      attachment => this.attachmentDisposition(attachment) !== 'inline',
+    )
+    const relatedBoundary = this.generateSafeBoundary('related_')
 
-    emailData += `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"\r\n\r\n`
+    if (inlineAttachments.length) {
+      emailData += `--${mixedBoundary}\r\n`
+      emailData += `Content-Type: multipart/related; boundary="${relatedBoundary}"\r\n\r\n`
+      emailData += `--${relatedBoundary}\r\n`
+      emailData += `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"\r\n\r\n`
+    } else {
+      emailData += `--${mixedBoundary}\r\n`
+      emailData += `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"\r\n\r\n`
+    }
 
     if (this.text) {
       emailData += `--${alternativeBoundary}\r\n`
@@ -209,30 +231,90 @@ export class Email {
 
     emailData += `--${alternativeBoundary}--\r\n`
 
-    if (this.attachments) {
-      for (const attachment of this.attachments) {
-        const mimeType =
-          attachment.mimeType || this.getMimeType(attachment.filename)
-        emailData += `--${mixedBoundary}\r\n`
-        emailData += `Content-Type: ${mimeType}; name="${attachment.filename}"\r\n`
-        emailData += `Content-Description: ${attachment.filename}\r\n`
-        emailData += `Content-Disposition: attachment; filename="${attachment.filename}";\r\n`
-        emailData += `    creation-date="${new Date().toUTCString()}";\r\n`
-        emailData += `Content-Transfer-Encoding: base64\r\n\r\n`
-
-        // split the content into multiple lines to avoid line length greater than 76 characters https://en.wikipedia.org/wiki/Base64#Variants_summary_table
-        const lines = attachment.content.match(/.{1,72}/g)
-        if (lines) {
-          emailData += `${lines.join('\r\n')}`
-        } else {
-          emailData += `${attachment.content}`
-        }
-        emailData += '\r\n\r\n'
+    if (inlineAttachments.length) {
+      for (const attachment of inlineAttachments) {
+        emailData += this.attachmentPart(relatedBoundary, attachment)
       }
+      emailData += `--${relatedBoundary}--\r\n`
     }
+
+    for (const attachment of regularAttachments) {
+      emailData += this.attachmentPart(mixedBoundary, attachment)
+    }
+
     emailData += `--${mixedBoundary}--\r\n`
 
     return emailData.endsWith('\r\n') ? emailData : `${emailData}\r\n`
+  }
+
+  private attachmentPart(boundary: string, attachment: EmailAttachment) {
+    const mimeType =
+      attachment.mimeType ||
+      attachment.contentType ||
+      this.getMimeType(attachment.filename)
+    const disposition = this.attachmentDisposition(attachment)
+    const encoding = attachment.encoding || 'base64'
+    let part = `--${boundary}\r\n`
+    part += `Content-Type: ${mimeType}; name="${attachment.filename}"\r\n`
+    part += `Content-Description: ${attachment.filename}\r\n`
+    if (attachment.contentId) {
+      part += `Content-ID: <${attachment.contentId.replace(/[<>]/g, '')}>\r\n`
+    }
+    part += `Content-Disposition: ${disposition}; filename="${attachment.filename}";\r\n`
+    part += `    creation-date="${new Date().toUTCString()}";\r\n`
+    part += `Content-Transfer-Encoding: ${encoding}\r\n\r\n`
+    part += `${this.encodedAttachmentContent(attachment, encoding)}\r\n\r\n`
+    return part
+  }
+
+  private attachmentDisposition(attachment: EmailAttachment) {
+    return (
+      attachment.disposition || (attachment.contentId ? 'inline' : 'attachment')
+    )
+  }
+
+  private encodedAttachmentContent(
+    attachment: EmailAttachment,
+    encoding: AttachmentEncoding,
+  ) {
+    if (encoding === 'base64') {
+      const value =
+        typeof attachment.content === 'string'
+          ? attachment.content
+          : this.bytesToBase64(attachment.content)
+      return this.wrapBase64(value)
+    }
+
+    const content = this.attachmentTextContent(attachment)
+    if (encoding === 'quoted-printable') {
+      return encodeQuotedPrintable(content)
+    }
+
+    if (/[^\x00-\x7F]/.test(content)) {
+      throw new Error('7bit attachment content must contain ASCII only')
+    }
+    return content.replace(/\r?\n/g, '\r\n')
+  }
+
+  private attachmentTextContent(attachment: EmailAttachment) {
+    if (typeof attachment.content === 'string') {
+      return attachment.content
+    }
+    return new TextDecoder().decode(attachment.content)
+  }
+
+  private bytesToBase64(bytes: Uint8Array) {
+    let binary = ''
+    for (let index = 0; index < bytes.length; index += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+    }
+    return btoa(binary)
+  }
+
+  private wrapBase64(value: string) {
+    const normalized = value.replace(/\s+/g, '')
+    const lines = normalized.match(/.{1,76}/g)
+    return lines ? lines.join('\r\n') : normalized
   }
 
   public getEmailData() {

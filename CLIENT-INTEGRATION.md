@@ -134,6 +134,59 @@ await EdgeMailer.send(
 signed header list is `from`, `to`, `subject`, `date`, `message-id`,
 `mime-version`, and `content-type`; override it with `dkim.headerFieldNames`.
 
+## MIME Attachments
+
+Attachments default to the previous base64-string behavior:
+
+```ts
+attachments: [
+  {
+    filename: 'report.txt',
+    content: btoa('report body'),
+    mimeType: 'text/plain',
+  },
+]
+```
+
+Use `encoding` when the attachment content is raw text:
+
+```ts
+attachments: [
+  {
+    filename: 'plain.txt',
+    content: 'plain ascii body',
+    mimeType: 'text/plain',
+    encoding: '7bit',
+  },
+  {
+    filename: 'utf8.txt',
+    content: 'ümlaut body',
+    mimeType: 'text/plain',
+    encoding: 'quoted-printable',
+  },
+]
+```
+
+Inline parts use `contentId` and are wrapped in `multipart/related`:
+
+```ts
+await EdgeMailer.send(config, {
+  from: 'sender@example.com',
+  to: 'recipient@example.net',
+  subject: 'Inline image',
+  html: '<img src="cid:logo">',
+  attachments: [
+    {
+      filename: 'logo.png',
+      content: logoBase64,
+      mimeType: 'image/png',
+      contentId: 'logo',
+      disposition: 'inline',
+    },
+  ],
+})
+```
+
 ## SMTP Feature Mapping
 
 The client uses server-advertised EHLO capabilities and only sends extension
@@ -152,6 +205,8 @@ Supported SMTP features:
 - `REQUIRETLS` through `envelope.requireTls`
 - `DSN` through `dsn` defaults and per-message `dsnOverride`
 - DKIM signing before `DATA`
+- Multipart alternative, related, and mixed MIME composition
+- Attachments with `base64`, `7bit`, and `quoted-printable` transfer encodings
 
 ## Envelope Options
 

@@ -82,11 +82,19 @@ function sampleEmail(body: Partial<EmailOptions> = {}): EmailOptions {
     subject:
       body.subject || `[edge-mailer sample] Deno ${new Date().toISOString()}`,
     text: body.text || 'Hello from the edge-mailer Deno sample.',
-    html: body.html,
+    html: body.html || '<p>Hello from the edge-mailer Deno sample.</p>',
     headers: {
       'X-Edge-Mailer-Sample': 'deno',
       ...body.headers,
     },
+    attachments: body.attachments || [
+      {
+        filename: 'edge-mailer-sample.txt',
+        content: 'Deno sample attachment\n',
+        mimeType: 'text/plain',
+        encoding: '7bit',
+      },
+    ],
   }
 }
 
