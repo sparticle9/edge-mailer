@@ -10,6 +10,7 @@ import {
   type EdgeMailerOptions,
 } from '../../src/smtp/mailer.ts'
 import type { EmailOptions } from '../../src/email'
+import type { MailObservationEvent } from '../../src/observation'
 import type { EdgeSocket, EdgeSocketConnector } from '../../src/runtime/socket'
 
 const USERNAME = 'sender@example.com'
@@ -135,6 +136,7 @@ async function startServer(
   options: SMTPServerOptions = {},
   behavior: {
     rejectRecipient?: string
+    rejectRecipientCode?: number
   } = {},
 ): Promise<TestServer> {
   const state: ServerState = {
@@ -192,7 +194,7 @@ async function startServer(
         const error = new Error('Recipient rejected') as Error & {
           responseCode?: number
         }
-        error.responseCode = 550
+        error.responseCode = behavior.rejectRecipientCode ?? 550
         callback(error)
         return
       }
@@ -475,5 +477,109 @@ describe('SmtpMailer functional SMTP server integration', () => {
       'bad@example.com',
       'good@example.com',
     ])
+  })
+
+  it('emits observation events for a successful real SMTP transaction', async () => {
+    const events: MailObservationEvent[] = []
+    const server = await startServer({
+      disabledCommands: ['STARTTLS'],
+      allowInsecureAuth: true,
+    })
+
+    const mailer = await FunctionalMailer.connect({
+      ...baseConfig(server.port),
+      observation: {
+        mode: 'transcript',
+        onEvent: event => events.push(event),
+      },
+    })
+    try {
+      const receipt = await mailer.send({
+        from: 'sender@example.com',
+        to: 'accepted@example.com',
+        subject: 'Observed real SMTP',
+        text: 'This send should be accepted by the local SMTP server.',
+      })
+
+      expect(receipt.attemptId).toMatch(/^mail_attempt_/)
+      expect(receipt.durationMs).toBeGreaterThanOrEqual(0)
+      expect(receipt.toJSON()).toMatchObject({
+        attemptId: receipt.attemptId,
+        responseCode: 250,
+      })
+    } finally {
+      await mailer.close()
+    }
+
+    expect(events.map(event => event.type)).toEqual([
+      'smtp.connect.completed',
+      'smtp.greet.completed',
+      'smtp.ehlo.completed',
+      'smtp.auth.completed',
+      'mail.send.started',
+      'mail.compose.completed',
+      'smtp.envelope.completed',
+      'smtp.data.completed',
+      'mail.send.completed',
+    ])
+    expect(
+      events.find(event => event.type === 'smtp.data.completed'),
+    ).toMatchObject({
+      responseCode: 250,
+      status: 'completed',
+    })
+  })
+
+  it('classifies transient and permanent recipient failures from a real SMTP server', async () => {
+    for (const [code, retryHint] of [
+      [450, 'retry'],
+      [550, 'do_not_retry'],
+    ] as const) {
+      const events: MailObservationEvent[] = []
+      const server = await startServer(
+        {
+          disabledCommands: ['STARTTLS'],
+          allowInsecureAuth: true,
+        },
+        {
+          rejectRecipient: `bad-${code}@example.com`,
+          rejectRecipientCode: code,
+        },
+      )
+
+      const mailer = await FunctionalMailer.connect({
+        ...baseConfig(server.port),
+        observation: {
+          mode: 'transcript',
+          onEvent: event => events.push(event),
+        },
+      })
+      try {
+        await expect(
+          mailer.send({
+            from: 'sender@example.com',
+            to: `bad-${code}@example.com`,
+            subject: `Rejected ${code}`,
+            text: 'This recipient should be rejected.',
+          }),
+        ).rejects.toMatchObject({
+          responseCode: code,
+          reason: 'recipient_rejected',
+          retryHint,
+        })
+      } finally {
+        await mailer.close()
+      }
+
+      expect(events.map(event => event.type)).toContain('smtp.rset.completed')
+      expect(
+        events.find(event => event.type === 'mail.send.failed'),
+      ).toMatchObject({
+        status: 'failed',
+        reason: 'recipient_rejected',
+        responseCode: code,
+        retryHint,
+      })
+    }
   })
 })

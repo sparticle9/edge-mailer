@@ -6,6 +6,20 @@ import {
   type DkimConfig,
 } from '../dkim.ts'
 import Logger, { LogLevel } from '../logger.ts'
+import {
+  classifyMailFailure,
+  createObservationId,
+  durationSince,
+  redactSmtpCommand,
+  redactSmtpResponse,
+  type MailFailureReason,
+  type MailNextAction,
+  type MailObservationEvent,
+  type MailObservationEventType,
+  type MailObservationOptions,
+  type MailObservationStatus,
+  type MailRetryHint,
+} from '../observation.ts'
 import type { EdgeSocket, EdgeSocketConnector } from '../runtime/socket.ts'
 
 /** SMTP authentication mechanisms supported by the shared SMTP client. */
@@ -31,6 +45,7 @@ export type SmtpRejectedRecipient = {
 }
 /** Structured receipt returned after an SMTP DATA transaction completes. */
 export type SmtpSendReceipt = {
+  attemptId: string
   messageId: string
   envelope: {
     from: string
@@ -42,7 +57,11 @@ export type SmtpSendReceipt = {
   responseCode?: number
   enhancedStatusCode?: string
   size: number
+  durationMs: number
+  toJSON(): SmtpSendReceiptJson
 }
+/** JSON form returned by {@link SmtpSendReceipt.toJSON}. */
+export type SmtpSendReceiptJson = Omit<SmtpSendReceipt, 'toJSON'>
 /** Ordered result list returned by `sendBatch()` and `sendMany()`. */
 export type BatchSendResult = PromiseSettledResult<SmtpSendReceipt>[]
 /** SMTP PIPELINING behavior. */
@@ -72,6 +91,28 @@ export type SMTPErrorOptions = {
   command?: string
   response?: string
   cause?: unknown
+  reason?: MailFailureReason
+  retryHint?: MailRetryHint
+  nextAction?: MailNextAction
+}
+
+/** JSON form returned by {@link SMTPError.toJSON}. */
+export type SMTPErrorJson = {
+  name: string
+  message: string
+  stage: SMTPStage
+  command?: string
+  response?: string
+  responseCode?: number
+  enhancedStatusCode?: string
+  transient: boolean
+  reason: MailFailureReason
+  retryHint: MailRetryHint
+  nextAction: MailNextAction
+  cause?: {
+    name?: string
+    message: string
+  }
 }
 
 /** Error thrown when an SMTP command or socket stage fails. */
@@ -88,6 +129,12 @@ export class SMTPError extends Error {
   public readonly enhancedStatusCode?: string
   /** Whether the response code is a transient 4xx failure. */
   public readonly transient: boolean
+  /** Compact reason suitable for retry policy and agent routing. */
+  public readonly reason: MailFailureReason
+  /** Retry guidance derived from stage and response metadata. */
+  public readonly retryHint: MailRetryHint
+  /** Suggested next action for callers and automation. */
+  public readonly nextAction: MailNextAction
   public override readonly cause?: unknown
 
   /** Creates a structured SMTP error. */
@@ -107,6 +154,42 @@ export class SMTPError extends Error {
     this.transient = this.responseCode
       ? this.responseCode >= 400 && this.responseCode < 500
       : false
+    const classification = classifyMailFailure({
+      stage: options.stage,
+      message,
+      responseCode: this.responseCode,
+    })
+    this.reason = options.reason || classification.reason
+    this.retryHint = options.retryHint || classification.retryHint
+    this.nextAction = options.nextAction || classification.nextAction
+  }
+
+  /** Returns a redacted, JSON-safe representation of the SMTP error. */
+  toJSON(): SMTPErrorJson {
+    return {
+      name: this.name,
+      message: redactSmtpResponse(this.message),
+      stage: this.stage,
+      command: this.command ? redactSmtpCommand(this.command) : undefined,
+      response: this.response ? redactSmtpResponse(this.response) : undefined,
+      responseCode: this.responseCode,
+      enhancedStatusCode: this.enhancedStatusCode,
+      transient: this.transient,
+      reason: this.reason,
+      retryHint: this.retryHint,
+      nextAction: this.nextAction,
+      cause: this.errorCauseJson(),
+    }
+  }
+
+  private errorCauseJson() {
+    if (!(this.cause instanceof Error)) {
+      return undefined
+    }
+    return {
+      name: this.cause.name,
+      message: redactSmtpResponse(this.cause.message),
+    }
   }
 }
 
@@ -282,6 +365,7 @@ export type EdgeMailerOptions = {
   pool?: SmtpPoolOptions | boolean | undefined
   socketTimeoutMs?: number
   responseTimeoutMs?: number
+  observation?: MailObservationOptions | undefined
 }
 
 /** Connection-pool limits for repeated SMTP sends. */
@@ -321,6 +405,9 @@ export class SmtpMailer {
   private responseBuffer = ''
 
   private readonly logger: Logger
+  private readonly runtimeName: string
+  private readonly observation?: MailObservationOptions
+  private readonly sessionId = createObservationId('smtp_session')
 
   private readonly dsn: DsnOptions | undefined
   private readonly dkim: DkimConfig | undefined
@@ -348,6 +435,7 @@ export class SmtpMailer {
     private readonly connector: EdgeSocketConnector,
     runtimeName = 'SmtpMailer',
   ) {
+    this.runtimeName = runtimeName
     this.port = options.port
     this.host = options.host
     this.secure = !!options.secure
@@ -367,6 +455,7 @@ export class SmtpMailer {
 
     this.socketTimeoutMs = options.socketTimeoutMs || 60_000
     this.responseTimeoutMs = options.responseTimeoutMs || 30_000
+    this.observation = options.observation
 
     this.logger = new Logger(
       options.logLevel,
@@ -452,9 +541,103 @@ export class SmtpMailer {
     return this.active
   }
 
+  private emitObservation(
+    type: MailObservationEventType,
+    event: Partial<MailObservationEvent> &
+      Pick<MailObservationEvent, 'status'> = { status: 'completed' },
+  ) {
+    const onEvent = this.observation?.onEvent
+    if (!onEvent) {
+      return
+    }
+
+    const includeTranscript = this.observation?.mode === 'transcript'
+    const observed: MailObservationEvent = {
+      version: 1,
+      type,
+      runtime: this.runtimeName,
+      sessionId: this.sessionId,
+      timestamp: event.timestamp || new Date().toISOString(),
+      ...event,
+      status: event.status,
+      command:
+        includeTranscript && event.command
+          ? redactSmtpCommand(event.command)
+          : undefined,
+      response:
+        includeTranscript && event.response
+          ? redactSmtpResponse(event.response)
+          : undefined,
+    }
+
+    try {
+      onEvent(observed)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.logger.warn('Observation handler failed: ' + message)
+    }
+  }
+
+  private emitStageObservation(
+    type: MailObservationEventType,
+    stage: SMTPStage,
+    startedAt: number,
+    status: MailObservationStatus = 'completed',
+    event: Partial<MailObservationEvent> = {},
+  ) {
+    this.emitObservation(type, {
+      stage,
+      status,
+      durationMs: durationSince(startedAt),
+      ...event,
+    })
+  }
+
+  private failureEvent(error: unknown): Pick<
+    MailObservationEvent,
+    'reason' | 'retryHint' | 'nextAction'
+  > & {
+    responseCode?: number
+    enhancedStatusCode?: string
+    command?: string
+    response?: string
+  } {
+    if (error instanceof SMTPError) {
+      return {
+        reason: error.reason,
+        retryHint: error.retryHint,
+        nextAction: error.nextAction,
+        responseCode: error.responseCode,
+        enhancedStatusCode: error.enhancedStatusCode,
+        command: error.command,
+        response: error.response,
+      }
+    }
+
+    const message = error instanceof Error ? error.message : String(error)
+    return classifyMailFailure({ stage: 'send', message })
+  }
+
   protected async initializeSmtpSession() {
-    await this.openSocket()
-    await this.waitForSocketConnected()
+    const connectStartedAt = Date.now()
+    try {
+      await this.openSocket()
+      await this.waitForSocketConnected()
+      this.emitStageObservation(
+        'smtp.connect.completed',
+        'connect',
+        connectStartedAt,
+      )
+    } catch (error) {
+      this.emitStageObservation(
+        'smtp.connect.completed',
+        'connect',
+        connectStartedAt,
+        'failed',
+        this.failureEvent(error),
+      )
+      throw error
+    }
     await this.greet()
     await this.ehlo()
 
@@ -469,19 +652,120 @@ export class SmtpMailer {
 
   private async sendEmail(email: Email): Promise<SmtpSendReceipt> {
     this.emailSending = email
-    const prepared = await this.prepareEmail(email)
+    const attemptId = createObservationId('mail_attempt')
+    const sendStartedAt = Date.now()
+    this.emitObservation('mail.send.started', {
+      status: 'started',
+      attemptId,
+      stage: 'send',
+    })
+
     let transaction: SmtpTransaction = { accepted: [], rejected: [] }
     try {
-      if (this.canPipeline()) {
-        transaction = await this.envelopePipelined(prepared)
-      } else {
-        await this.mail(prepared)
-        transaction = await this.rcpt(prepared)
-        await this.data()
+      const composeStartedAt = Date.now()
+      const prepared = await this.prepareEmail(email)
+      this.emitStageObservation(
+        'mail.compose.completed',
+        'send',
+        composeStartedAt,
+        'completed',
+        {
+          attemptId,
+          messageSize: prepared.size,
+        },
+      )
+
+      const envelopeStartedAt = Date.now()
+      try {
+        if (this.canPipeline()) {
+          transaction = await this.envelopePipelined(prepared)
+        } else {
+          await this.mail(prepared)
+          transaction = await this.rcpt(prepared)
+        }
+      } catch (error) {
+        this.emitStageObservation(
+          'smtp.envelope.completed',
+          'rcpt',
+          envelopeStartedAt,
+          'failed',
+          {
+            attemptId,
+            acceptedCount: transaction.accepted.length,
+            rejectedCount: transaction.rejected.length,
+            ...this.failureEvent(error),
+          },
+        )
+        throw error
       }
-      const response = await this.body(prepared)
+      this.emitStageObservation(
+        'smtp.envelope.completed',
+        'rcpt',
+        envelopeStartedAt,
+        'completed',
+        {
+          attemptId,
+          acceptedCount: transaction.accepted.length,
+          rejectedCount: transaction.rejected.length,
+        },
+      )
+
+      const dataStartedAt = Date.now()
+      let response: string
+      try {
+        if (!this.canPipeline()) {
+          await this.data()
+        }
+        response = await this.body(prepared)
+      } catch (error) {
+        this.emitStageObservation(
+          'smtp.data.completed',
+          'data',
+          dataStartedAt,
+          'failed',
+          {
+            attemptId,
+            ...this.failureEvent(error),
+          },
+        )
+        throw error
+      }
+      this.emitStageObservation(
+        'smtp.data.completed',
+        'data',
+        dataStartedAt,
+        'completed',
+        {
+          attemptId,
+          command: 'DATA',
+          response,
+          responseCode: this.responseCode(response),
+          enhancedStatusCode: this.enhancedStatusCode(response),
+        },
+      )
       email.setSent()
-      return this.createReceipt(prepared, transaction, response)
+      const receipt = this.createReceipt(
+        prepared,
+        transaction,
+        response,
+        attemptId,
+        durationSince(sendStartedAt),
+      )
+      this.emitStageObservation(
+        'mail.send.completed',
+        'send',
+        sendStartedAt,
+        'completed',
+        {
+          attemptId,
+          messageSize: receipt.size,
+          responseCode: receipt.responseCode,
+          enhancedStatusCode: receipt.enhancedStatusCode,
+          acceptedCount: receipt.accepted.length,
+          rejectedCount: receipt.rejected.length,
+        },
+      )
+      return receipt
     } catch (error) {
       const sendError =
         error instanceof Error
@@ -506,6 +790,16 @@ export class SmtpMailer {
           )
         }
       }
+      this.emitStageObservation(
+        'mail.send.failed',
+        'send',
+        sendStartedAt,
+        'failed',
+        {
+          attemptId,
+          ...this.failureEvent(sendError),
+        },
+      )
       throw sendError
     } finally {
       this.emailSending = null
@@ -585,7 +879,7 @@ export class SmtpMailer {
         continue
       }
       const data = decode(value).toString()
-      this.logger.debug('SMTP server response:\n' + data)
+      this.logger.debug('SMTP server response:\n' + redactSmtpResponse(data))
       this.responseBuffer = this.responseBuffer + data
       const response = this.shiftResponse()
       if (response) {
@@ -613,12 +907,12 @@ export class SmtpMailer {
     return undefined
   }
 
-  private async writeLine(line: string) {
-    await this.write(`${line}\r\n`)
+  private async writeLine(line: string, debugLine?: string) {
+    await this.write(`${line}\r\n`, debugLine || line)
   }
 
-  private async write(data: string) {
-    this.logger.debug('Write to socket:\n' + data)
+  private async write(data: string, debugData = data) {
+    this.logger.debug('Write to socket:\n' + redactSmtpCommand(debugData))
     await this.writer.write(encode(data))
   }
 
@@ -687,31 +981,91 @@ export class SmtpMailer {
   }
 
   private async greet() {
-    const response = await this.readTimeout('greet')
-    if (!response.startsWith('220')) {
-      throw new SMTPError('Failed to connect to SMTP server: ' + response, {
-        stage: 'greet',
-        response,
-      })
+    const startedAt = Date.now()
+    try {
+      const response = await this.readTimeout('greet')
+      if (!response.startsWith('220')) {
+        throw new SMTPError('Failed to connect to SMTP server: ' + response, {
+          stage: 'greet',
+          response,
+        })
+      }
+      this.emitStageObservation(
+        'smtp.greet.completed',
+        'greet',
+        startedAt,
+        'completed',
+        {
+          response,
+          responseCode: this.responseCode(response),
+          enhancedStatusCode: this.enhancedStatusCode(response),
+        },
+      )
+    } catch (error) {
+      this.emitStageObservation(
+        'smtp.greet.completed',
+        'greet',
+        startedAt,
+        'failed',
+        this.failureEvent(error),
+      )
+      throw error
     }
   }
 
   private async ehlo() {
+    const startedAt = Date.now()
     const command = 'EHLO 127.0.0.1'
-    await this.writeLine(command)
-    const response = await this.readTimeout('ehlo', command)
-    if (response.startsWith('421')) {
-      throw new SMTPError(`Failed to EHLO. ${response}`, {
-        stage: 'ehlo',
-        command,
-        response,
-      })
+    try {
+      await this.writeLine(command)
+      const response = await this.readTimeout('ehlo', command)
+      if (response.startsWith('421')) {
+        throw new SMTPError(`Failed to EHLO. ${response}`, {
+          stage: 'ehlo',
+          command,
+          response,
+        })
+      }
+      if (!response.startsWith('2')) {
+        this.emitStageObservation(
+          'smtp.ehlo.completed',
+          'ehlo',
+          startedAt,
+          'failed',
+          {
+            command,
+            response,
+            responseCode: this.responseCode(response),
+            enhancedStatusCode: this.enhancedStatusCode(response),
+          },
+        )
+        await this.helo()
+        return
+      }
+      this.parseCapabilities(response)
+      this.emitStageObservation(
+        'smtp.ehlo.completed',
+        'ehlo',
+        startedAt,
+        'completed',
+        {
+          command,
+          response,
+          responseCode: this.responseCode(response),
+          enhancedStatusCode: this.enhancedStatusCode(response),
+          capabilities: this.capabilityNames(),
+        },
+      )
+    } catch (error) {
+      this.emitStageObservation(
+        'smtp.ehlo.completed',
+        'ehlo',
+        startedAt,
+        'failed',
+        this.failureEvent(error),
+      )
+      throw error
     }
-    if (!response.startsWith('2')) {
-      await this.helo()
-      return
-    }
-    this.parseCapabilities(response)
   }
 
   private async helo() {
@@ -729,31 +1083,55 @@ export class SmtpMailer {
   }
 
   private async tls() {
+    const startedAt = Date.now()
     const command = 'STARTTLS'
-    await this.writeLine(command)
-    const response = await this.readTimeout('starttls', command)
-    if (!response.startsWith('220')) {
-      throw new SMTPError('Failed to start TLS: ' + response, {
-        stage: 'starttls',
-        command,
-        response,
-      })
-    }
+    try {
+      await this.writeLine(command)
+      const response = await this.readTimeout('starttls', command)
+      if (!response.startsWith('220')) {
+        throw new SMTPError('Failed to start TLS: ' + response, {
+          stage: 'starttls',
+          command,
+          response,
+        })
+      }
 
-    this.reader.releaseLock()
-    this.writer.releaseLock()
-    const socket = this.getSocket()
-    if (!socket.startTls) {
-      throw new SMTPError('Runtime socket does not support STARTTLS', {
-        stage: 'starttls',
-        command,
-        response,
-      })
+      this.reader.releaseLock()
+      this.writer.releaseLock()
+      const socket = this.getSocket()
+      if (!socket.startTls) {
+        throw new SMTPError('Runtime socket does not support STARTTLS', {
+          stage: 'starttls',
+          command,
+          response,
+        })
+      }
+      this.socket = await socket.startTls()
+      this.reader = this.socket.readable.getReader()
+      this.writer = this.socket.writable.getWriter()
+      this.resetCapabilities()
+      this.emitStageObservation(
+        'smtp.starttls.completed',
+        'starttls',
+        startedAt,
+        'completed',
+        {
+          command,
+          response,
+          responseCode: this.responseCode(response),
+          enhancedStatusCode: this.enhancedStatusCode(response),
+        },
+      )
+    } catch (error) {
+      this.emitStageObservation(
+        'smtp.starttls.completed',
+        'starttls',
+        startedAt,
+        'failed',
+        this.failureEvent(error),
+      )
+      throw error
     }
-    this.socket = await socket.startTls()
-    this.reader = this.socket.readable.getReader()
-    this.writer = this.socket.writable.getWriter()
-    this.resetCapabilities()
   }
 
   private resetCapabilities() {
@@ -812,6 +1190,41 @@ export class SmtpMailer {
     }
   }
 
+  private capabilityNames() {
+    const capabilities: string[] = []
+    if (this.allowAuth) {
+      capabilities.push(
+        this.authTypeSupported.length
+          ? `AUTH ${this.authTypeSupported.join(' ').toUpperCase()}`
+          : 'AUTH',
+      )
+    }
+    if (this.supportsStartTls) {
+      capabilities.push('STARTTLS')
+    }
+    if (this.supportsDSN) {
+      capabilities.push('DSN')
+    }
+    if (this.supportsPipelining) {
+      capabilities.push('PIPELINING')
+    }
+    if (this.supportsSize) {
+      capabilities.push(
+        this.maxMessageSize ? `SIZE ${this.maxMessageSize}` : 'SIZE',
+      )
+    }
+    if (this.supports8BitMime) {
+      capabilities.push('8BITMIME')
+    }
+    if (this.supportsSmtpUtf8) {
+      capabilities.push('SMTPUTF8')
+    }
+    if (this.supportsRequireTls) {
+      capabilities.push('REQUIRETLS')
+    }
+    return capabilities
+  }
+
   private async auth() {
     if (!this.allowAuth) {
       return
@@ -819,23 +1232,43 @@ export class SmtpMailer {
     if (!this.credentials) {
       return
     }
-    if (
-      this.authTypeSupported.includes('plain') &&
-      this.authType.includes('plain')
-    ) {
-      await this.authWithPlain()
-    } else if (
-      this.authTypeSupported.includes('login') &&
-      this.authType.includes('login')
-    ) {
-      await this.authWithLogin()
-    } else if (
-      this.authTypeSupported.includes('cram-md5') &&
-      this.authType.includes('cram-md5')
-    ) {
-      await this.authWithCramMD5()
-    } else {
-      throw new SMTPError('No supported auth method found.', { stage: 'auth' })
+    const startedAt = Date.now()
+    try {
+      if (
+        this.authTypeSupported.includes('plain') &&
+        this.authType.includes('plain')
+      ) {
+        await this.authWithPlain()
+      } else if (
+        this.authTypeSupported.includes('login') &&
+        this.authType.includes('login')
+      ) {
+        await this.authWithLogin()
+      } else if (
+        this.authTypeSupported.includes('cram-md5') &&
+        this.authType.includes('cram-md5')
+      ) {
+        await this.authWithCramMD5()
+      } else {
+        throw new SMTPError('No supported auth method found.', {
+          stage: 'auth',
+        })
+      }
+      this.emitStageObservation(
+        'smtp.auth.completed',
+        'auth',
+        startedAt,
+        'completed',
+      )
+    } catch (error) {
+      this.emitStageObservation(
+        'smtp.auth.completed',
+        'auth',
+        startedAt,
+        'failed',
+        this.failureEvent(error),
+      )
+      throw error
     }
   }
 
@@ -866,7 +1299,7 @@ export class SmtpMailer {
     }
 
     const usernameBase64 = btoa(this.credentials!.username)
-    await this.writeLine(usernameBase64)
+    await this.writeLine(usernameBase64, 'AUTH LOGIN username <redacted>')
     const userResponse = await this.readTimeout('auth', 'AUTH LOGIN username')
     if (!userResponse.startsWith('3')) {
       throw new SMTPError('Failed to login authentication: ' + userResponse, {
@@ -877,7 +1310,7 @@ export class SmtpMailer {
     }
 
     const passwordBase64 = btoa(this.credentials!.password)
-    await this.writeLine(passwordBase64)
+    await this.writeLine(passwordBase64, 'AUTH LOGIN password <redacted>')
     const authResult = await this.readTimeout('auth', 'AUTH LOGIN password')
     if (!authResult.startsWith('2')) {
       throw new SMTPError('Failed to login authentication: ' + authResult, {
@@ -922,6 +1355,7 @@ export class SmtpMailer {
 
     await this.writeLine(
       btoa(`${this.credentials!.username} ${challengeSolved}`),
+      'AUTH CRAM-MD5 <redacted>',
     )
     const authResult = await this.readTimeout('auth', command)
     if (!authResult.startsWith('2')) {
@@ -1043,7 +1477,7 @@ export class SmtpMailer {
   }
 
   private async body(prepared: PreparedEmail) {
-    await this.write(prepared.data)
+    await this.write(prepared.data, '<message body>')
     const response = await this.readTimeout('body', '<message body>')
     if (!response.startsWith('2')) {
       throw new SMTPError('Failed send email body: ' + response, {
@@ -1059,8 +1493,11 @@ export class SmtpMailer {
     prepared: PreparedEmail,
     transaction: SmtpTransaction,
     response: string,
+    attemptId: string,
+    durationMs: number,
   ): SmtpSendReceipt {
-    return {
+    const receipt: SmtpSendReceipt = {
+      attemptId,
       messageId: prepared.email.headers['Message-ID'] || '',
       envelope: {
         from: this.mailFrom(prepared.email),
@@ -1072,7 +1509,23 @@ export class SmtpMailer {
       responseCode: this.responseCode(response),
       enhancedStatusCode: this.enhancedStatusCode(response),
       size: prepared.size,
+      durationMs,
+      toJSON() {
+        return {
+          attemptId: this.attemptId,
+          messageId: this.messageId,
+          envelope: this.envelope,
+          accepted: this.accepted,
+          rejected: this.rejected,
+          response: this.response,
+          responseCode: this.responseCode,
+          enhancedStatusCode: this.enhancedStatusCode,
+          size: this.size,
+          durationMs: this.durationMs,
+        }
+      },
     }
+    return receipt
   }
 
   private rejectedRecipient(
@@ -1101,15 +1554,39 @@ export class SmtpMailer {
   }
 
   private async rset() {
+    const startedAt = Date.now()
     const command = 'RSET'
-    await this.writeLine(command)
-    const response = await this.readTimeout('rset', command)
-    if (!response.startsWith('2')) {
-      throw new SMTPError(`Failed to reset: ${response}`, {
-        stage: 'rset',
-        command,
-        response,
-      })
+    try {
+      await this.writeLine(command)
+      const response = await this.readTimeout('rset', command)
+      if (!response.startsWith('2')) {
+        throw new SMTPError(`Failed to reset: ${response}`, {
+          stage: 'rset',
+          command,
+          response,
+        })
+      }
+      this.emitStageObservation(
+        'smtp.rset.completed',
+        'rset',
+        startedAt,
+        'completed',
+        {
+          command,
+          response,
+          responseCode: this.responseCode(response),
+          enhancedStatusCode: this.enhancedStatusCode(response),
+        },
+      )
+    } catch (error) {
+      this.emitStageObservation(
+        'smtp.rset.completed',
+        'rset',
+        startedAt,
+        'failed',
+        this.failureEvent(error),
+      )
+      throw error
     }
   }
 

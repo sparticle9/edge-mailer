@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SMTPError, EdgeMailer } from '../../src/mailer'
 import { connect } from 'cloudflare:sockets'
+import { LogLevel } from '../../src/logger'
+import type { MailObservationEvent } from '../../src/observation'
 
 vi.mock('cloudflare:sockets', () => ({
   connect: vi.fn(),
@@ -1452,6 +1454,246 @@ describe('EdgeMailer', () => {
       expect(
         writtenLines().some(line => line.startsWith('MIME-Version: 1.0')),
       ).toBe(true)
+    })
+  })
+
+  describe('observation', () => {
+    it('emits ordered SMTP lifecycle events for a STARTTLS send', async () => {
+      const events: MailObservationEvent[] = []
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-STARTTLS\r\n250-AUTH PLAIN\r\n250 AUTH=PLAIN\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 Ready to start TLS\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH PLAIN\r\n250 AUTH=PLAIN\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('235 Authentication successful\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Sender OK\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Recipient OK\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('354 Start mail input\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Message accepted\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('221 Bye\r\n'),
+        })
+
+      const mailer = await EdgeMailer.connect({
+        host: 'smtp.example.com',
+        port: 587,
+        credentials: {
+          username: 'test@example.com',
+          password: 'password',
+        },
+        authType: ['plain'],
+        observation: {
+          mode: 'transcript',
+          onEvent: event => events.push(event),
+        },
+      })
+
+      const receipt = await mailer.send({
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        subject: 'Observed',
+        text: 'Hello observation',
+      })
+      await mailer.close()
+
+      expect(events.map(event => event.type)).toEqual([
+        'smtp.connect.completed',
+        'smtp.greet.completed',
+        'smtp.ehlo.completed',
+        'smtp.starttls.completed',
+        'smtp.ehlo.completed',
+        'smtp.auth.completed',
+        'mail.send.started',
+        'mail.compose.completed',
+        'smtp.envelope.completed',
+        'smtp.data.completed',
+        'mail.send.completed',
+      ])
+      expect(new Set(events.map(event => event.sessionId)).size).toBe(1)
+      expect(receipt.attemptId).toMatch(/^mail_attempt_/)
+      expect(receipt.durationMs).toBeGreaterThanOrEqual(0)
+      expect(receipt.toJSON()).toMatchObject({
+        attemptId: receipt.attemptId,
+        responseCode: 250,
+      })
+      expect(
+        events
+          .filter(event => event.type.startsWith('mail.'))
+          .map(event => event.attemptId),
+      ).toEqual([receipt.attemptId, receipt.attemptId, receipt.attemptId])
+      expect(
+        events.find(event => event.type === 'smtp.ehlo.completed'),
+      ).toMatchObject({
+        command: 'EHLO 127.0.0.1',
+        capabilities: expect.arrayContaining(['STARTTLS']),
+      })
+    })
+
+    it('classifies recipient failure events and emits RSET recovery', async () => {
+      const events: MailObservationEvent[] = []
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH PLAIN\r\n250 AUTH=PLAIN\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('235 Authentication successful\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Sender OK\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('550 5.1.1 Recipient rejected\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Reset OK\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('221 Bye\r\n'),
+        })
+
+      const mailer = await EdgeMailer.connect({
+        host: 'smtp.example.com',
+        port: 587,
+        credentials: {
+          username: 'test@example.com',
+          password: 'password',
+        },
+        authType: ['plain'],
+        observation: {
+          mode: 'transcript',
+          onEvent: event => events.push(event),
+        },
+      })
+
+      await expect(
+        mailer.send({
+          from: 'sender@example.com',
+          to: 'recipient@example.com',
+          subject: 'Rejected',
+          text: 'This should be rejected.',
+        }),
+      ).rejects.toMatchObject({
+        reason: 'recipient_rejected',
+        retryHint: 'do_not_retry',
+        nextAction: 'check_recipient',
+      })
+      await mailer.close()
+
+      expect(events.map(event => event.type)).toContain('smtp.rset.completed')
+      expect(
+        events.find(event => event.type === 'smtp.envelope.completed'),
+      ).toMatchObject({
+        status: 'failed',
+        reason: 'recipient_rejected',
+        responseCode: 550,
+        command: 'RCPT TO: <***@example.com>',
+      })
+      expect(events.at(-1)).toMatchObject({
+        type: 'mail.send.failed',
+        status: 'failed',
+        reason: 'recipient_rejected',
+      })
+    })
+
+    it('does not let observation handler errors fail SMTP work', async () => {
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH PLAIN\r\n250 AUTH=PLAIN\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('235 Authentication successful\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Sender OK\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Recipient OK\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('354 Start mail input\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Message accepted\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('221 Bye\r\n'),
+        })
+
+      const mailer = await EdgeMailer.connect({
+        host: 'smtp.example.com',
+        port: 587,
+        credentials: {
+          username: 'test@example.com',
+          password: 'password',
+        },
+        authType: ['plain'],
+        logLevel: LogLevel.NONE,
+        observation: {
+          onEvent() {
+            throw new Error('handler failed')
+          },
+        },
+      })
+
+      await expect(
+        mailer.send({
+          from: 'sender@example.com',
+          to: 'recipient@example.com',
+          subject: 'Handler failure',
+          text: 'Observation handler errors should not matter.',
+        }),
+      ).resolves.toMatchObject({ responseCode: 250 })
+      await mailer.close()
+    })
+
+    it('serializes SMTP errors with redacted transcript fields', () => {
+      const error = new SMTPError('Invalid recipient@example.com', {
+        stage: 'rcpt',
+        command: 'RCPT TO: <recipient@example.com>',
+        response: '550 5.1.1 recipient@example.com rejected',
+      })
+
+      expect(error.toJSON()).toMatchObject({
+        name: 'SMTPError',
+        stage: 'rcpt',
+        command: 'RCPT TO: <***@example.com>',
+        response: '550 5.1.1 ***@example.com rejected',
+        reason: 'recipient_rejected',
+        retryHint: 'do_not_retry',
+        nextAction: 'check_recipient',
+      })
     })
   })
 

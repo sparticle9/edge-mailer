@@ -6,6 +6,7 @@ import type {
   SmtpSendReceipt,
 } from '../../src/smtp/mailer'
 import { SmtpConnectionPool } from '../../src/smtp/pool'
+import type { MailObservationEvent } from '../../src/observation'
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -28,6 +29,7 @@ const email: EmailOptions = {
 }
 
 const receipt: SmtpSendReceipt = {
+  attemptId: 'mail_attempt_pool',
   messageId: '<pool-lifecycle@example.com>',
   envelope: {
     from: 'sender@example.com',
@@ -38,6 +40,21 @@ const receipt: SmtpSendReceipt = {
   response: '250 Message accepted',
   responseCode: 250,
   size: 512,
+  durationMs: 1,
+  toJSON() {
+    return {
+      attemptId: this.attemptId,
+      messageId: this.messageId,
+      envelope: this.envelope,
+      accepted: this.accepted,
+      rejected: this.rejected,
+      response: this.response,
+      responseCode: this.responseCode,
+      enhancedStatusCode: this.enhancedStatusCode,
+      size: this.size,
+      durationMs: this.durationMs,
+    }
+  },
 }
 
 const options: EdgeMailerOptions = {
@@ -51,6 +68,50 @@ const options: EdgeMailerOptions = {
 }
 
 describe('SmtpConnectionPool lifecycle', () => {
+  it('emits lightweight pool observation events', async () => {
+    const events: MailObservationEvent[] = []
+    const mailer = {
+      send: vi.fn(async () => receipt),
+      close: vi.fn(async () => undefined),
+      isActive: vi.fn(() => true),
+    }
+    const pool = new SmtpConnectionPool<SmtpMailer>(
+      {
+        ...options,
+        pool: {
+          maxConnections: 1,
+          maxMessagesPerConnection: 2,
+          idleTimeoutMs: 0,
+        },
+        observation: {
+          onEvent: event => events.push(event),
+        },
+      },
+      async () => mailer as unknown as SmtpMailer,
+      'PoolTestMailer',
+    )
+
+    await pool.send(email)
+    await pool.send(email)
+    await pool.close()
+
+    expect(events.map(event => event.type)).toEqual([
+      'smtp.pool.connection.created',
+      'smtp.pool.acquire.completed',
+      'smtp.pool.connection.reused',
+      'smtp.pool.acquire.completed',
+      'smtp.pool.connection.closed',
+    ])
+    expect(events[0]).toMatchObject({
+      runtime: 'PoolTestMailer',
+      sessionId: expect.stringMatching(/^smtp_pool_/),
+    })
+    expect(events[1].pool).toMatchObject({
+      waitMs: expect.any(Number),
+      totalConnections: 1,
+    })
+  })
+
   it('waits for a retired SMTP client to close before pool close resolves', async () => {
     const closeStarted = deferred()
     const closeGate = deferred()

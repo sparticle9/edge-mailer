@@ -34,10 +34,12 @@ Supported today:
   attachment transfer encodings `base64`, `7bit`, and `quoted-printable`.
 - Batch sending over one SMTP session and bounded connection pools.
 - DKIM signing with RSA private keys.
-- Structured send receipts with message id, envelope, accepted recipients, final
-  SMTP response, response code, and message size.
+- Structured send receipts with attempt id, duration, message id, envelope,
+  accepted recipients, final SMTP response, response code, and message size.
 - Structured SMTP errors with stage, command, response code, enhanced status
-  code, and transient classification.
+  code, transient classification, reason, retry hint, and next action.
+- Optional observation events for SMTP lifecycle timing, redacted transcript
+  summaries, and lightweight pool activity.
 
 Not supported yet:
 
@@ -45,6 +47,8 @@ Not supported yet:
 - XOAUTH2.
 - True streaming SMTP `DATA` for large attachments.
 - ICS/calendar invite helpers.
+- Open/click tracking, provider webhook receivers, bounce normalization, or
+  inbox-placement analytics.
 - HTTP provider SDK wrappers.
 
 See [CLIENT-INTEGRATION.md](CLIENT-INTEGRATION.md) for client-side runtime
@@ -105,9 +109,9 @@ documented. The next useful work is grouped by product risk:
 - Runtime coverage: continue hardening Deno Deploy v2, add CI-friendly sample
   deployment checks, and document any runtime-specific socket limitations before
   adding another runtime.
-- Observability: add structured SMTP lifecycle events, redacted debug logging,
-  per-send timing, pool metrics, and smoke-test output that separates SMTP
-  acceptance from final inbox placement.
+- Observability: keep structured SMTP lifecycle events and redacted debug
+  logging focused on SMTP server acceptance; add optional bridges only after
+  the core contract stays small and runtime-neutral.
 - Deliverability and operations: add clearer retry guidance from structured SMTP
   errors, DKIM verification examples, and mailbox delivery caveats.
 - Message features: add XOAUTH2, calendar invite helpers, richer MIME fixtures,

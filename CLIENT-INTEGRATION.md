@@ -114,6 +114,51 @@ For Cloudflare Workers, create and close pools inside a request, queue, or
 scheduled handler. Do not rely on a global SMTP socket surviving across Worker
 invocations.
 
+## Observation
+
+Observation is optional and runs inside the shared SMTP core for Cloudflare and
+Deno. It reports the send attempt, SMTP session stages, per-stage timings,
+retry classification, and lightweight pool activity. It proves whether the
+configured SMTP server accepted or rejected the message; it does not report
+final inbox placement, opens, clicks, provider webhooks, bounces, or complaints.
+
+```ts
+const events = []
+
+const receipt = await EdgeMailer.send(
+  {
+    ...config,
+    observation: {
+      mode: 'summary',
+      onEvent(event) {
+        events.push(event)
+      },
+    },
+  },
+  email,
+)
+
+console.log(receipt.attemptId)
+console.log(receipt.durationMs)
+```
+
+Use `mode: 'transcript'` only when debugging SMTP protocol behavior. Transcript
+fields redact auth payloads, message bodies, attachment content, and SMTP
+address local parts by default.
+
+```ts
+try {
+  await EdgeMailer.send(config, email)
+} catch (error) {
+  if (error instanceof SMTPError) {
+    console.log(error.reason)
+    console.log(error.retryHint)
+    console.log(error.nextAction)
+    console.log(error.toJSON())
+  }
+}
+```
+
 ## DKIM
 
 Set `config.dkim` only when Edge Mailer should sign outbound messages before

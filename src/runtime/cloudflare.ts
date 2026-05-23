@@ -85,6 +85,6 @@ export class EdgeMailer extends SmtpMailer {
   static createPool(
     options: EdgeMailerOptions,
   ): SmtpConnectionPool<EdgeMailer> {
-    return new SmtpConnectionPool(options, EdgeMailer.connect)
+    return new SmtpConnectionPool(options, EdgeMailer.connect, 'EdgeMailer')
   }
 }

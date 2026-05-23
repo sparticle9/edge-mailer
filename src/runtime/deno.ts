@@ -150,6 +150,6 @@ export class DenoMailer extends SmtpMailer {
   static createPool(
     options: EdgeMailerOptions,
   ): SmtpConnectionPool<DenoMailer> {
-    return new SmtpConnectionPool(options, DenoMailer.connect)
+    return new SmtpConnectionPool(options, DenoMailer.connect, 'DenoMailer')
   }
 }
