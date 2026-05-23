@@ -24,6 +24,7 @@ type Env = {
   SMTP_POOL_MAX_CONNECTIONS?: string
   SMTP_POOL_MAX_MESSAGES_PER_CONNECTION?: string
   SMTP_POOL_IDLE_TIMEOUT_MS?: string
+  SAMPLE_SEND_TOKEN?: string
 }
 
 function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
@@ -108,12 +109,25 @@ function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
     attachments: body.attachments || [
       {
         filename: 'edge-mailer-sample.txt',
-        content: `Cloudflare sample attachment\nMarker: ${marker}\n`,
+        content: new TextEncoder().encode(
+          `Cloudflare sample attachment\nMarker: ${marker}\n`,
+        ),
         mimeType: 'text/plain',
-        encoding: '7bit',
       },
     ],
   }
+}
+
+function authorized(request: Request, env: Env) {
+  if (!env.SAMPLE_SEND_TOKEN) {
+    return true
+  }
+  const authorization = request.headers.get('authorization')
+  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
+  const headerToken = request.headers.get('x-sample-send-token')
+  return (
+    bearer === env.SAMPLE_SEND_TOKEN || headerToken === env.SAMPLE_SEND_TOKEN
+  )
 }
 
 export default {
@@ -129,11 +143,16 @@ export default {
           (env.SMTP_USERNAME || env.SMTP_USER) &&
           env.SMTP_PASSWORD,
         ),
+        protected: Boolean(env.SAMPLE_SEND_TOKEN),
       })
     }
 
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 })
+    }
+
+    if (!authorized(request, env)) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const body = (await request
