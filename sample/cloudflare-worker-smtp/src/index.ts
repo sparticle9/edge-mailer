@@ -14,6 +14,7 @@ type Env = {
   SMTP_PASSWORD?: string
   SMTP_FROM?: string
   SMTP_TO?: string
+  TEST_RECIPIENT_EMAIL?: string
   SMTP_REPLY_TO?: string
   SMTP_AUTH_TYPE?: string
 }
@@ -27,6 +28,10 @@ function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
     .map(item => item.trim().toLowerCase())
     .filter(Boolean) as AuthType[]
   return values.length === 1 ? values[0] : values
+}
+
+function defaultRecipient(env: Env): string | undefined {
+  return env.SMTP_TO || env.TEST_RECIPIENT_EMAIL
 }
 
 function smtpConfig(env: Env): EdgeMailerOptions {
@@ -52,21 +57,22 @@ function smtpConfig(env: Env): EdgeMailerOptions {
 function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
   const username = env.SMTP_USERNAME || env.SMTP_USER
   const from = body.from || env.SMTP_FROM || username
-  const to = body.to || env.SMTP_TO
+  const to = body.to || defaultRecipient(env)
   if (!from || !to) {
-    throw new Error('Missing SMTP_FROM or SMTP_TO')
+    throw new Error('Missing SMTP_FROM or SMTP_TO/TEST_RECIPIENT_EMAIL')
   }
+  const marker = `cloudflare-${new Date().toISOString()}`
   return {
     from,
     to,
     reply: body.reply || env.SMTP_REPLY_TO || from,
-    subject:
-      body.subject ||
-      `[edge-mailer sample] Cloudflare ${new Date().toISOString()}`,
-    text: body.text || 'Hello from the edge-mailer Cloudflare Worker sample.',
+    subject: body.subject || `[edge-mailer sample] ${marker}`,
+    text:
+      body.text ||
+      `Hello from the edge-mailer Cloudflare Worker sample.\n\nMarker: ${marker}`,
     html: body.html,
     headers: {
-      'X-Edge-Mailer-Sample': 'cloudflare-worker',
+      'X-Edge-Mailer-Sample': marker,
       ...body.headers,
     },
   }
@@ -94,7 +100,8 @@ export default {
     const body = (await request
       .json()
       .catch(() => ({}))) as Partial<EmailOptions>
-    await EdgeMailer.send(smtpConfig(env), sampleEmail(env, body))
-    return Response.json({ ok: true })
+    const email = sampleEmail(env, body)
+    await EdgeMailer.send(smtpConfig(env), email)
+    return Response.json({ ok: true, accepted: true, subject: email.subject })
   },
 } satisfies ExportedHandler<Env>

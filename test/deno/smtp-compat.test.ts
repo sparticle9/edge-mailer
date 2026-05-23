@@ -1,0 +1,345 @@
+// @deno-types="npm:@types/smtp-server@3.5.13"
+import { SMTPServer, type SMTPServerOptions } from 'npm:smtp-server@3.18.4'
+import {
+  DenoMailer,
+  LogLevel,
+  SMTPError,
+  type EdgeMailerOptions,
+  type EmailOptions,
+} from '../../src/deno.ts'
+
+const USERNAME = 'sender@example.com'
+const PASSWORD = 'smtp-password'
+
+type ServerState = {
+  auths: { method: string; username?: string }[]
+  mailFrom: { address: string; args: Record<string, unknown> }[]
+  rcptTo: { address: string; args: Record<string, unknown> }[]
+  messages: { raw: string; transmissionType: string }[]
+  resetCount: number
+}
+
+type TestServer = {
+  port: number
+  state: ServerState
+  close(): Promise<void>
+}
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message)
+  }
+}
+
+function assertEquals<T>(actual: T, expected: T, message?: string) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(
+      message ||
+        `Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    )
+  }
+}
+
+async function startServer(
+  options: SMTPServerOptions = {},
+  behavior: {
+    rejectRecipient?: string
+  } = {},
+): Promise<TestServer> {
+  const state: ServerState = {
+    auths: [],
+    mailFrom: [],
+    rcptTo: [],
+    messages: [],
+    resetCount: 0,
+  }
+
+  const server = new SMTPServer({
+    name: 'smtp.test.local',
+    banner: 'edge-mailer deno compatibility server',
+    size: 1024 * 1024,
+    hideDSN: false,
+    hideENHANCEDSTATUSCODES: false,
+    authMethods: ['PLAIN', 'LOGIN', 'CRAM-MD5'],
+    disabledCommands: ['STARTTLS'],
+    allowInsecureAuth: true,
+    onAuth(auth, _session, callback) {
+      state.auths.push({ method: auth.method, username: auth.username })
+      const method = auth.method as string
+      const valid =
+        auth.username === USERNAME &&
+        (method === 'CRAM-MD5'
+          ? auth.validatePassword(PASSWORD)
+          : auth.password === PASSWORD)
+
+      if (valid) {
+        callback(null, { user: auth.username })
+        return
+      }
+
+      const error = new Error('Invalid credentials') as Error & {
+        responseCode?: number
+      }
+      error.responseCode = 535
+      callback(error)
+    },
+    onMailFrom(address, _session, callback) {
+      state.mailFrom.push({
+        address: address.address,
+        args: address.args as Record<string, unknown>,
+      })
+      callback()
+    },
+    onRcptTo(address, _session, callback) {
+      state.rcptTo.push({
+        address: address.address,
+        args: address.args as Record<string, unknown>,
+      })
+      if (address.address === behavior.rejectRecipient) {
+        const error = new Error('Recipient rejected') as Error & {
+          responseCode?: number
+        }
+        error.responseCode = 550
+        callback(error)
+        return
+      }
+      callback()
+    },
+    onData(stream, session, callback) {
+      const chunks: Uint8Array[] = []
+      stream.on('data', chunk => chunks.push(new Uint8Array(chunk)))
+      stream.on('error', error => callback(error))
+      stream.on('end', () => {
+        const length = chunks.reduce((total, chunk) => total + chunk.length, 0)
+        const body = new Uint8Array(length)
+        let offset = 0
+        for (const chunk of chunks) {
+          body.set(chunk, offset)
+          offset += chunk.length
+        }
+        state.messages.push({
+          raw: new TextDecoder().decode(body),
+          transmissionType: session.transmissionType,
+        })
+        callback(null, 'queued')
+      })
+    },
+    onClose(_session) {
+      state.resetCount++
+    },
+    ...options,
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+
+  const address = server.server.address()
+  assert(
+    typeof address === 'object' && address !== null,
+    'SMTP server must listen on a TCP address',
+  )
+  return {
+    port: address.port,
+    state,
+    close: () =>
+      new Promise<void>(resolve => {
+        server.close(resolve)
+      }),
+  }
+}
+
+function baseConfig(port: number): EdgeMailerOptions {
+  return {
+    host: '127.0.0.1',
+    port,
+    secure: false,
+    startTls: false,
+    credentials: {
+      username: USERNAME,
+      password: PASSWORD,
+    },
+    authType: ['plain', 'login', 'cram-md5'],
+    logLevel: LogLevel.NONE,
+    socketTimeoutMs: 2_000,
+    responseTimeoutMs: 2_000,
+  }
+}
+
+function standardMessage(overrides: Partial<EmailOptions> = {}): EmailOptions {
+  return {
+    from: { name: 'Deno Sender', email: 'sender@example.com' },
+    to: [
+      { email: 'primary@example.com' },
+      { name: 'Named Recipient', email: 'named@example.com' },
+    ],
+    cc: 'copy@example.com',
+    bcc: 'hidden@example.com',
+    reply: { name: 'Reply Desk', email: 'reply@example.com' },
+    subject: 'Deno SMTP compatibility',
+    text: 'Plain text body from the Deno runtime.',
+    html: '<p>HTML body from the <strong>Deno</strong> runtime.</p>',
+    headers: {
+      'X-Edge-Mailer-Compat': 'deno',
+    },
+    attachments: [
+      {
+        filename: 'notes.txt',
+        content: btoa('Deno attachment body'),
+        mimeType: 'text/plain',
+      },
+    ],
+    ...overrides,
+  }
+}
+
+Deno.test(
+  'DenoMailer sends standard text, html, headers, recipients, and attachments through a real SMTP server',
+  async () => {
+    const server = await startServer()
+    try {
+      await DenoMailer.send(baseConfig(server.port), standardMessage())
+
+      assertEquals(server.state.auths, [
+        { method: 'PLAIN', username: USERNAME },
+      ])
+      assertEquals(
+        server.state.rcptTo.map(recipient => recipient.address),
+        [
+          'primary@example.com',
+          'named@example.com',
+          'copy@example.com',
+          'hidden@example.com',
+        ],
+      )
+
+      const message = server.state.messages[0]?.raw
+      assert(message, 'SMTP server should receive one message body')
+      assert(message.includes('From: "Deno Sender"'), 'from header is present')
+      assert(
+        message.includes('To: primary@example.com'),
+        'to header is present',
+      )
+      assert(message.includes('CC: copy@example.com'), 'cc header is present')
+      assert(
+        message.includes('Reply-To: "Reply Desk"'),
+        'reply-to header is present',
+      )
+      assert(
+        message.includes('X-Edge-Mailer-Compat: deno'),
+        'custom header is present',
+      )
+      assert(!message.includes('hidden@example.com'), 'bcc header is hidden')
+      assert(
+        message.includes('Content-Type: text/plain; charset="UTF-8"'),
+        'plain text MIME part is present',
+      )
+      assert(
+        message.includes('Content-Type: text/html; charset="UTF-8"'),
+        'HTML MIME part is present',
+      )
+      assert(
+        message.includes(
+          'Content-Disposition: attachment; filename="notes.txt"',
+        ),
+        'attachment MIME part is present',
+      )
+      assertEquals(server.state.mailFrom[0]?.address, 'sender@example.com')
+      assert(
+        server.state.mailFrom[0]?.args.SIZE !== undefined,
+        'SIZE extension is applied when advertised',
+      )
+    } finally {
+      await server.close()
+    }
+  },
+)
+
+Deno.test(
+  'DenoMailer can authenticate with LOGIN against a real SMTP server',
+  async () => {
+    const server = await startServer({
+      authMethods: ['LOGIN'],
+    })
+    try {
+      await DenoMailer.send(
+        {
+          ...baseConfig(server.port),
+          authType: 'login',
+        },
+        standardMessage({
+          to: 'login@example.com',
+          cc: undefined,
+          bcc: undefined,
+          attachments: undefined,
+          subject: 'Deno LOGIN compatibility',
+          text: 'LOGIN authentication from Deno.',
+          html: undefined,
+        }),
+      )
+
+      assertEquals(server.state.auths, [
+        { method: 'LOGIN', username: USERNAME },
+      ])
+      assertEquals(server.state.messages.length, 1)
+    } finally {
+      await server.close()
+    }
+  },
+)
+
+Deno.test(
+  'DenoMailer sendBatch recovers after a rejected recipient with RSET',
+  async () => {
+    const server = await startServer({}, { rejectRecipient: 'bad@example.com' })
+    try {
+      const results = await DenoMailer.sendBatch(
+        baseConfig(server.port),
+        [
+          standardMessage({
+            to: 'bad@example.com',
+            cc: undefined,
+            bcc: undefined,
+            attachments: undefined,
+            subject: 'Deno rejected recipient',
+            text: 'This recipient should be rejected.',
+            html: undefined,
+          }),
+          standardMessage({
+            to: 'good@example.com',
+            cc: undefined,
+            bcc: undefined,
+            attachments: undefined,
+            subject: 'Deno accepted recipient',
+            text: 'This recipient should be accepted after RSET.',
+            html: undefined,
+          }),
+        ],
+        { continueOnError: true },
+      )
+
+      assertEquals(
+        results.map(result => result.status),
+        ['rejected', 'fulfilled'],
+      )
+      const rejected = results[0] as PromiseRejectedResult
+      assert(
+        rejected.reason instanceof SMTPError,
+        'recipient rejection should surface as SMTPError',
+      )
+      assertEquals(rejected.reason.responseCode, 550)
+      assertEquals(rejected.reason.enhancedStatusCode, '5.1.1')
+      assertEquals(server.state.messages.length, 1)
+      assertEquals(
+        server.state.messages[0]?.raw.includes('good@example.com'),
+        true,
+      )
+    } finally {
+      await server.close()
+    }
+  },
+)

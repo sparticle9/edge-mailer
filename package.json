@@ -44,8 +44,9 @@
     "build": "tsup",
     "test": "vitest",
     "test:smtp-core": "vitest --config vitest.smtp.config.mts --run",
-    "test:deno": "deno test --config sample/deno-smtp/deno.json test/deno",
-    "check:deno": "deno check --config sample/deno-smtp/deno.json src/deno.ts sample/deno-smtp/main.ts sample/deno-smtp/smoke.ts test/deno/deno-connector.test.ts",
+    "test:deno": "deno test --no-lock --allow-net=127.0.0.1,localhost --config sample/deno-smtp/deno.json test/deno",
+    "check:deno": "deno check --no-lock --config sample/deno-smtp/deno.json src/deno.ts sample/deno-smtp/main.ts sample/deno-smtp/smoke.ts test/deno/deno-connector.test.ts test/deno/smtp-compat.test.ts",
+    "test:smoke:cloudflare": "direnv exec . node sample/cloudflare-worker-smtp/smoke.mjs",
     "test:smoke:deno": "direnv exec . sh -c 'cd sample/deno-smtp && deno task smoke'",
     "test:smoke:smtp": "direnv exec . node scripts/smtp-smoke.mjs",
     "format": "prettier '**/*.{json,ts,js,cjs,mjs,md}' --write --ignore-path .gitignore"

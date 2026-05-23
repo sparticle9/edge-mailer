@@ -234,8 +234,7 @@ Do not commit real credentials.
 SMTP_HOST=smtp.example.com
 SMTP_USERNAME=sender@example.com
 SMTP_PASSWORD=secret
-SMTP_FROM=sender@example.com
-SMTP_TO=recipient@example.net
+TEST_RECIPIENT_EMAIL=recipient@example.net
 SMTP_AUTH_TYPE=plain,login
 ```
 

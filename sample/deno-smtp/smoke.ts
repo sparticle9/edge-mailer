@@ -4,7 +4,7 @@ import {
   type AuthType,
   type EdgeMailerOptions,
   type EmailOptions,
-} from 'edge-mailer/deno'
+} from '../../src/deno.ts'
 
 function env(name: string): string | undefined {
   return Deno.env.get(name)
@@ -16,6 +16,10 @@ function required(name: string): string {
     throw new Error(`Missing ${name}`)
   }
   return value
+}
+
+function recipient(): string {
+  return env('SMTP_TO') || required('TEST_RECIPIENT_EMAIL')
 }
 
 function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
@@ -51,16 +55,17 @@ const config: EdgeMailerOptions = {
 }
 
 const from = env('SMTP_FROM') || username
+const marker = `deno-${new Date().toISOString()}`
 const email: EmailOptions = {
   from,
-  to: required('SMTP_TO'),
+  to: recipient(),
   reply: env('SMTP_REPLY_TO') || from,
-  subject: `[edge-mailer smoke] Deno ${new Date().toISOString()}`,
-  text: 'SMTP smoke from edge-mailer through the Deno runtime.',
+  subject: `[edge-mailer smoke] ${marker}`,
+  text: `SMTP smoke from edge-mailer through the Deno runtime.\n\nMarker: ${marker}`,
   headers: {
-    'X-Edge-Mailer-Smoke': 'deno',
+    'X-Edge-Mailer-Smoke': marker,
   },
 }
 
 await DenoMailer.send(config, email)
-console.log('Deno SMTP smoke sent')
+console.log(`Deno SMTP smoke accepted by SMTP server: ${marker}`)

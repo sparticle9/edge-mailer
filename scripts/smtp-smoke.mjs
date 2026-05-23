@@ -87,7 +87,7 @@ function emailBase(env, subject) {
   const username = env.SMTP_USERNAME || env.SMTP_USER
   return {
     from: env.SMTP_FROM || username,
-    to: env.SMTP_TO,
+    to: env.SMTP_TO || env.TEST_RECIPIENT_EMAIL,
     reply: env.SMTP_REPLY_TO || env.SMTP_FROM || username,
     subject: `[edge-mailer smoke] ${subject} ${new Date().toISOString()}`,
     headers: {
@@ -100,7 +100,12 @@ async function main() {
   const env = { ...process.env }
   const username = env.SMTP_USERNAME || env.SMTP_USER
   env.SMTP_USERNAME = username
-  required(env, ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_TO'])
+  required(env, ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD'])
+  if (!env.SMTP_TO && !env.TEST_RECIPIENT_EMAIL) {
+    throw new Error(
+      'Missing required SMTP smoke environment keys: SMTP_TO or TEST_RECIPIENT_EMAIL',
+    )
+  }
 
   const wrangler = spawn(
     'pnpm',

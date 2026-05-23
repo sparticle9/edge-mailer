@@ -4,7 +4,7 @@ import {
   type AuthType,
   type EdgeMailerOptions,
   type EmailOptions,
-} from 'edge-mailer/deno'
+} from '../../src/deno.ts'
 
 function env(name: string): string | undefined {
   return Deno.env.get(name)
@@ -19,6 +19,10 @@ function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
     .map(item => item.trim().toLowerCase())
     .filter(Boolean) as AuthType[]
   return values.length === 1 ? values[0] : values
+}
+
+function defaultRecipient(): string | undefined {
+  return env('SMTP_TO') || env('TEST_RECIPIENT_EMAIL')
 }
 
 function smtpConfig(): EdgeMailerOptions {
@@ -45,9 +49,9 @@ function smtpConfig(): EdgeMailerOptions {
 function sampleEmail(body: Partial<EmailOptions> = {}): EmailOptions {
   const username = env('SMTP_USERNAME') || env('SMTP_USER')
   const from = body.from || env('SMTP_FROM') || username
-  const to = body.to || env('SMTP_TO')
+  const to = body.to || defaultRecipient()
   if (!from || !to) {
-    throw new Error('Missing SMTP_FROM or SMTP_TO')
+    throw new Error('Missing SMTP_FROM or SMTP_TO/TEST_RECIPIENT_EMAIL')
   }
   return {
     from,
@@ -83,6 +87,7 @@ Deno.serve(async request => {
   }
 
   const body = (await request.json().catch(() => ({}))) as Partial<EmailOptions>
-  await DenoMailer.send(smtpConfig(), sampleEmail(body))
-  return Response.json({ ok: true })
+  const email = sampleEmail(body)
+  await DenoMailer.send(smtpConfig(), email)
+  return Response.json({ ok: true, accepted: true, subject: email.subject })
 })
