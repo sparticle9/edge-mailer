@@ -11,6 +11,7 @@ type PooledMailer<TMailer extends SmtpMailer> = {
   mailer: TMailer
   messages: number
   idleTimer?: ReturnType<typeof setTimeout>
+  destroyPromise?: Promise<void>
 }
 
 type Waiter<TMailer extends SmtpMailer> = {
@@ -26,6 +27,8 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
   private ready: PooledMailer<TMailer>[] = []
   private busy = new Set<PooledMailer<TMailer>>()
   private waitQueue: Waiter<TMailer>[] = []
+  private pendingCreates = new Set<Promise<void>>()
+  private pendingDestroys = new Set<Promise<void>>()
   private totalConnections = 0
   private closed = false
 
@@ -49,11 +52,11 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     try {
       const receipt = await client.mailer.send(email)
       client.messages++
-      this.release(client)
+      await this.release(client)
       return receipt
     } catch (error) {
       client.messages++
-      this.release(client)
+      await this.release(client)
       throw error
     }
   }
@@ -86,7 +89,10 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     const clients = [...this.ready, ...this.busy]
     this.ready = []
     this.busy.clear()
-    await Promise.all(clients.map(client => this.destroy(client)))
+    for (const client of clients) {
+      this.trackDestroy(client, false)
+    }
+    await this.waitForDrained()
   }
 
   private async acquire(): Promise<PooledMailer<TMailer>> {
@@ -110,14 +116,19 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     })
   }
 
-  private release(client: PooledMailer<TMailer>) {
+  private async release(client: PooledMailer<TMailer>) {
+    if (client.destroyPromise) {
+      await this.trackDestroy(client)
+      return
+    }
+
     this.busy.delete(client)
     if (
       this.closed ||
       !client.mailer.isActive() ||
       client.messages >= this.maxMessagesPerConnection
     ) {
-      void this.destroy(client).finally(() => this.dispatchWaiters())
+      await this.trackDestroy(client)
       return
     }
 
@@ -132,7 +143,7 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     if (this.idleTimeoutMs > 0) {
       client.idleTimer = setTimeout(() => {
         this.ready = this.ready.filter(ready => ready !== client)
-        void this.destroy(client).finally(() => this.dispatchWaiters())
+        void this.trackDestroy(client)
       }, this.idleTimeoutMs)
     }
   }
@@ -159,29 +170,80 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     }
   }
 
-  private async createBusyClient(): Promise<PooledMailer<TMailer>> {
+  private createBusyClient(): Promise<PooledMailer<TMailer>> {
+    const create = this.createBusyClientInner()
+    const trackedCreate = create.then(
+      () => undefined,
+      () => undefined,
+    )
+    this.pendingCreates.add(trackedCreate)
+    void trackedCreate.finally(() => {
+      this.pendingCreates.delete(trackedCreate)
+    })
+    return create
+  }
+
+  private async createBusyClientInner(): Promise<PooledMailer<TMailer>> {
     this.totalConnections++
+    let destroyOwnsConnection = false
     try {
       const mailer = await this.connectMailer(this.options)
       const client = { mailer, messages: 0 }
+      if (this.closed) {
+        destroyOwnsConnection = true
+        await this.trackDestroy(client, false)
+        throw new Error('SMTP connection pool is closed')
+      }
       this.busy.add(client)
       return client
     } catch (error) {
-      this.totalConnections--
-      this.dispatchWaiters()
+      if (!destroyOwnsConnection) {
+        this.totalConnections--
+        this.dispatchWaiters()
+      }
       throw error
     }
   }
 
-  private async destroy(client: PooledMailer<TMailer>) {
+  private trackDestroy(
+    client: PooledMailer<TMailer>,
+    dispatchWaiters = true,
+  ): Promise<void> {
+    const destroyPromise = this.destroy(client)
+    this.pendingDestroys.add(destroyPromise)
+    void destroyPromise.finally(() => {
+      this.pendingDestroys.delete(destroyPromise)
+      if (dispatchWaiters) {
+        this.dispatchWaiters()
+      }
+    })
+    return destroyPromise
+  }
+
+  private destroy(client: PooledMailer<TMailer>): Promise<void> {
+    if (client.destroyPromise) {
+      return client.destroyPromise
+    }
+
+    client.destroyPromise = this.destroyOnce(client)
+    return client.destroyPromise
+  }
+
+  private async destroyOnce(client: PooledMailer<TMailer>) {
     this.clearIdleTimer(client)
     this.ready = this.ready.filter(ready => ready !== client)
     this.busy.delete(client)
-    this.totalConnections = Math.max(0, this.totalConnections - 1)
     try {
       await client.mailer.close()
     } catch {
       // Closing an already-failed SMTP connection should not mask send results.
+    }
+    this.totalConnections = Math.max(0, this.totalConnections - 1)
+  }
+
+  private async waitForDrained() {
+    while (this.pendingCreates.size || this.pendingDestroys.size) {
+      await Promise.all([...this.pendingCreates, ...this.pendingDestroys])
     }
   }
 
