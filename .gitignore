@@ -1,0 +1,14 @@
+node_modules/
+dist/
+
+.env
+test/env.smtp-smoke
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+
+# Cloudflare
+.wrangler/
