@@ -2,6 +2,7 @@ import {
   EdgeMailer,
   LogLevel,
   type AuthType,
+  type DkimConfig,
   type EdgeMailerOptions,
   type EmailOptions,
 } from '../../../src/cloudflare'
@@ -17,6 +18,12 @@ type Env = {
   TEST_RECIPIENT_EMAIL?: string
   SMTP_REPLY_TO?: string
   SMTP_AUTH_TYPE?: string
+  DKIM_DOMAIN?: string
+  DKIM_SELECTOR?: string
+  DKIM_PRIVATE_KEY?: string
+  SMTP_POOL_MAX_CONNECTIONS?: string
+  SMTP_POOL_MAX_MESSAGES_PER_CONNECTION?: string
+  SMTP_POOL_IDLE_TIMEOUT_MS?: string
 }
 
 function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
@@ -32,6 +39,19 @@ function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
 
 function defaultRecipient(env: Env): string | undefined {
   return env.SMTP_TO || env.TEST_RECIPIENT_EMAIL
+}
+
+function dkimConfig(env: Env): DkimConfig | undefined {
+  const domainName = env.DKIM_DOMAIN
+  const keySelector = env.DKIM_SELECTOR
+  const privateKey = env.DKIM_PRIVATE_KEY?.replace(/\\n/g, '\n')
+  if (!domainName && !keySelector && !privateKey) {
+    return undefined
+  }
+  if (!domainName || !keySelector || !privateKey) {
+    throw new Error('Missing DKIM_DOMAIN, DKIM_SELECTOR, or DKIM_PRIVATE_KEY')
+  }
+  return { domainName, keySelector, privateKey }
 }
 
 function smtpConfig(env: Env): EdgeMailerOptions {
@@ -50,6 +70,14 @@ function smtpConfig(env: Env): EdgeMailerOptions {
       password: env.SMTP_PASSWORD,
     },
     authType: authTypes(env.SMTP_AUTH_TYPE),
+    dkim: dkimConfig(env),
+    pool: {
+      maxConnections: Number(env.SMTP_POOL_MAX_CONNECTIONS || 1),
+      maxMessagesPerConnection: Number(
+        env.SMTP_POOL_MAX_MESSAGES_PER_CONNECTION || 20,
+      ),
+      idleTimeoutMs: Number(env.SMTP_POOL_IDLE_TIMEOUT_MS || 1_000),
+    },
     logLevel: LogLevel.NONE,
   }
 }
@@ -85,6 +113,7 @@ export default {
         ok: true,
         runtime: 'cloudflare-workers',
         directSmtp: true,
+        pool: true,
         configured: Boolean(
           env.SMTP_HOST &&
           (env.SMTP_USERNAME || env.SMTP_USER) &&
@@ -101,7 +130,18 @@ export default {
       .json()
       .catch(() => ({}))) as Partial<EmailOptions>
     const email = sampleEmail(env, body)
-    await EdgeMailer.send(smtpConfig(env), email)
-    return Response.json({ ok: true, accepted: true, subject: email.subject })
+    const pool = EdgeMailer.createPool(smtpConfig(env))
+    try {
+      const receipt = await pool.send(email)
+      return Response.json({
+        ok: true,
+        accepted: true,
+        subject: email.subject,
+        messageId: receipt.messageId,
+        recipients: receipt.accepted,
+      })
+    } finally {
+      await pool.close()
+    }
   },
 } satisfies ExportedHandler<Env>

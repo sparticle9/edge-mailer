@@ -1,9 +1,11 @@
 import { connect as connectSocket } from 'cloudflare:sockets'
 import { SmtpMailer } from '../smtp/mailer.ts'
+import { SmtpConnectionPool } from '../smtp/pool.ts'
 import type {
   BatchSendOptions,
   BatchSendResult,
   EdgeMailerOptions,
+  SmtpSendReceipt,
 } from '../smtp/mailer.ts'
 import type { EmailOptions } from '../email.ts'
 import type { EdgeSocketConnector, SocketTlsMode } from './socket.ts'
@@ -52,10 +54,10 @@ export class EdgeMailer extends SmtpMailer {
   static async send(
     options: EdgeMailerOptions,
     email: EmailOptions,
-  ): Promise<void> {
+  ): Promise<SmtpSendReceipt> {
     const mailer = await EdgeMailer.connect(options)
     try {
-      await mailer.send(email)
+      return await mailer.send(email)
     } finally {
       await mailer.close()
     }
@@ -72,5 +74,11 @@ export class EdgeMailer extends SmtpMailer {
     } finally {
       await mailer.close()
     }
+  }
+
+  static createPool(
+    options: EdgeMailerOptions,
+  ): SmtpConnectionPool<EdgeMailer> {
+    return new SmtpConnectionPool(options, EdgeMailer.connect)
   }
 }

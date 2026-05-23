@@ -38,6 +38,14 @@ function collectVars() {
     TEST_RECIPIENT_EMAIL: env('TEST_RECIPIENT_EMAIL'),
     SMTP_REPLY_TO: env('SMTP_REPLY_TO'),
     SMTP_AUTH_TYPE: env('SMTP_AUTH_TYPE'),
+    DKIM_DOMAIN: env('DKIM_DOMAIN'),
+    DKIM_SELECTOR: env('DKIM_SELECTOR'),
+    DKIM_PRIVATE_KEY: env('DKIM_PRIVATE_KEY'),
+    SMTP_POOL_MAX_CONNECTIONS: env('SMTP_POOL_MAX_CONNECTIONS'),
+    SMTP_POOL_MAX_MESSAGES_PER_CONNECTION: env(
+      'SMTP_POOL_MAX_MESSAGES_PER_CONNECTION',
+    ),
+    SMTP_POOL_IDLE_TIMEOUT_MS: env('SMTP_POOL_IDLE_TIMEOUT_MS'),
   }
 
   if (!values.SMTP_TO && !values.TEST_RECIPIENT_EMAIL) {
@@ -144,7 +152,7 @@ async function main() {
     await waitForWorker(wrangler)
     const result = await postSmoke()
     console.log(
-      `Cloudflare Worker SMTP smoke accepted by SMTP server: ${result.subject}`,
+      `Cloudflare Worker SMTP smoke accepted by SMTP server: ${result.subject} ${result.messageId}`,
     )
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))

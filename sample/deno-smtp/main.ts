@@ -2,6 +2,7 @@ import {
   DenoMailer,
   LogLevel,
   type AuthType,
+  type DkimConfig,
   type EdgeMailerOptions,
   type EmailOptions,
 } from '../../src/deno.ts'
@@ -25,6 +26,19 @@ function defaultRecipient(): string | undefined {
   return env('SMTP_TO') || env('TEST_RECIPIENT_EMAIL')
 }
 
+function dkimConfig(): DkimConfig | undefined {
+  const domainName = env('DKIM_DOMAIN')
+  const keySelector = env('DKIM_SELECTOR')
+  const privateKey = env('DKIM_PRIVATE_KEY')?.replace(/\\n/g, '\n')
+  if (!domainName && !keySelector && !privateKey) {
+    return undefined
+  }
+  if (!domainName || !keySelector || !privateKey) {
+    throw new Error('Missing DKIM_DOMAIN, DKIM_SELECTOR, or DKIM_PRIVATE_KEY')
+  }
+  return { domainName, keySelector, privateKey }
+}
+
 function smtpConfig(): EdgeMailerOptions {
   const username = env('SMTP_USERNAME') || env('SMTP_USER')
   const password = env('SMTP_PASSWORD')
@@ -40,6 +54,14 @@ function smtpConfig(): EdgeMailerOptions {
     startTls: port !== 465,
     credentials: { username, password },
     authType: authTypes(env('SMTP_AUTH_TYPE')),
+    dkim: dkimConfig(),
+    pool: {
+      maxConnections: Number(env('SMTP_POOL_MAX_CONNECTIONS') || 1),
+      maxMessagesPerConnection: Number(
+        env('SMTP_POOL_MAX_MESSAGES_PER_CONNECTION') || 20,
+      ),
+      idleTimeoutMs: Number(env('SMTP_POOL_IDLE_TIMEOUT_MS') || 1_000),
+    },
     logLevel: LogLevel.NONE,
     responseTimeoutMs: Number(env('SMTP_RESPONSE_TIMEOUT_MS') || 30_000),
     socketTimeoutMs: Number(env('SMTP_SOCKET_TIMEOUT_MS') || 30_000),
@@ -88,6 +110,17 @@ Deno.serve(async request => {
 
   const body = (await request.json().catch(() => ({}))) as Partial<EmailOptions>
   const email = sampleEmail(body)
-  await DenoMailer.send(smtpConfig(), email)
-  return Response.json({ ok: true, accepted: true, subject: email.subject })
+  const pool = DenoMailer.createPool(smtpConfig())
+  try {
+    const receipt = await pool.send(email)
+    return Response.json({
+      ok: true,
+      accepted: true,
+      subject: email.subject,
+      messageId: receipt.messageId,
+      recipients: receipt.accepted,
+    })
+  } finally {
+    await pool.close()
+  }
 })

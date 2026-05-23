@@ -1,8 +1,10 @@
 import { SmtpMailer } from '../smtp/mailer.ts'
+import { SmtpConnectionPool } from '../smtp/pool.ts'
 import type {
   BatchSendOptions,
   BatchSendResult,
   EdgeMailerOptions,
+  SmtpSendReceipt,
 } from '../smtp/mailer.ts'
 import type { EmailOptions } from '../email.ts'
 import type { EdgeSocket, EdgeSocketConnector } from './socket.ts'
@@ -116,10 +118,10 @@ export class DenoMailer extends SmtpMailer {
   static async send(
     options: EdgeMailerOptions,
     email: EmailOptions,
-  ): Promise<void> {
+  ): Promise<SmtpSendReceipt> {
     const mailer = await DenoMailer.connect(options)
     try {
-      await mailer.send(email)
+      return await mailer.send(email)
     } finally {
       await mailer.close()
     }
@@ -136,5 +138,11 @@ export class DenoMailer extends SmtpMailer {
     } finally {
       await mailer.close()
     }
+  }
+
+  static createPool(
+    options: EdgeMailerOptions,
+  ): SmtpConnectionPool<DenoMailer> {
+    return new SmtpConnectionPool(options, DenoMailer.connect)
   }
 }

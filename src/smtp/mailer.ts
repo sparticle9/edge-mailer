@@ -1,5 +1,10 @@
 import { decode, encode } from '../utils.ts'
 import { Email, type DsnOptions, type EmailOptions } from '../email.ts'
+import {
+  signDkimMessage,
+  validateDkimConfig,
+  type DkimConfig,
+} from '../dkim.ts'
 import Logger, { LogLevel } from '../logger.ts'
 import type { EdgeSocket, EdgeSocketConnector } from '../runtime/socket.ts'
 
@@ -13,7 +18,27 @@ export type Credentials = {
 export type BatchSendOptions = {
   continueOnError?: boolean
 }
-export type BatchSendResult = PromiseSettledResult<void>[]
+export type SmtpRejectedRecipient = {
+  recipient: string
+  response: string
+  responseCode?: number
+  enhancedStatusCode?: string
+  transient: boolean
+}
+export type SmtpSendReceipt = {
+  messageId: string
+  envelope: {
+    from: string
+    to: string[]
+  }
+  accepted: string[]
+  rejected: SmtpRejectedRecipient[]
+  response: string
+  responseCode?: number
+  enhancedStatusCode?: string
+  size: number
+}
+export type BatchSendResult = PromiseSettledResult<SmtpSendReceipt>[]
 export type PipeliningMode = 'auto' | false
 export type SmtpBodyType = '7BIT' | '8BITMIME'
 export type SMTPStage =
@@ -234,14 +259,27 @@ export type EdgeMailerOptions = {
   logLevel?: LogLevel
   pipelining?: PipeliningMode
   dsn?: DsnOptions | undefined
+  dkim?: DkimConfig | undefined
+  pool?: SmtpPoolOptions | boolean | undefined
   socketTimeoutMs?: number
   responseTimeoutMs?: number
+}
+
+export type SmtpPoolOptions = {
+  maxConnections?: number
+  maxMessagesPerConnection?: number
+  idleTimeoutMs?: number
 }
 
 type PreparedEmail = {
   email: Email
   data: string
   size: number
+}
+
+type SmtpTransaction = {
+  accepted: string[]
+  rejected: SmtpRejectedRecipient[]
 }
 
 export class SmtpMailer {
@@ -264,10 +302,11 @@ export class SmtpMailer {
   private readonly logger: Logger
 
   private readonly dsn: DsnOptions | undefined
+  private readonly dkim: DkimConfig | undefined
 
   private active = false
   private closeError?: Error
-  private sendChain: Promise<void> = Promise.resolve()
+  private sendChain: Promise<unknown> = Promise.resolve()
   private emailSending: Email | null = null
   private queuedSendRejects = new Set<(reason?: unknown) => void>()
 
@@ -302,6 +341,8 @@ export class SmtpMailer {
     this.credentials = options.credentials
     this.pipelining = options.pipelining === false ? false : 'auto'
     this.dsn = options.dsn || {}
+    this.dkim = options.dkim
+    validateDkimConfig(this.dkim)
 
     this.socketTimeoutMs = options.socketTimeoutMs || 60_000
     this.responseTimeoutMs = options.responseTimeoutMs || 30_000
@@ -312,12 +353,12 @@ export class SmtpMailer {
     )
   }
 
-  public send(options: EmailOptions): Promise<void> {
+  public send(options: EmailOptions): Promise<SmtpSendReceipt> {
     const email = new Email(options)
     email.sent.catch(() => undefined)
     let rejectQueued!: (reason?: unknown) => void
     let cancelled = false
-    const task = new Promise<void>((resolve, reject) => {
+    const task = new Promise<SmtpSendReceipt>((resolve, reject) => {
       rejectQueued = reason => {
         cancelled = true
         reject(reason)
@@ -326,12 +367,12 @@ export class SmtpMailer {
       const run = this.sendChain.then(async () => {
         this.queuedSendRejects.delete(rejectQueued)
         if (cancelled) {
-          return
+          throw this.closedSendError()
         }
         if (!this.active) {
           throw this.closedSendError()
         }
-        await this.sendEmail(email)
+        return await this.sendEmail(email)
       })
       run.then(resolve, reject)
     })
@@ -347,8 +388,8 @@ export class SmtpMailer {
     const results: BatchSendResult = []
     for (const email of emails) {
       try {
-        await this.send(email)
-        results.push({ status: 'fulfilled', value: undefined })
+        const receipt = await this.send(email)
+        results.push({ status: 'fulfilled', value: receipt })
       } catch (reason) {
         if (!options.continueOnError) {
           throw reason
@@ -382,6 +423,10 @@ export class SmtpMailer {
     await this.closeSocket()
   }
 
+  public isActive() {
+    return this.active
+  }
+
   protected async initializeSmtpSession() {
     await this.openSocket()
     await this.waitForSocketConnected()
@@ -397,19 +442,21 @@ export class SmtpMailer {
     this.active = true
   }
 
-  private async sendEmail(email: Email) {
+  private async sendEmail(email: Email): Promise<SmtpSendReceipt> {
     this.emailSending = email
-    const prepared = this.prepareEmail(email)
+    const prepared = await this.prepareEmail(email)
+    let transaction: SmtpTransaction = { accepted: [], rejected: [] }
     try {
       if (this.canPipeline()) {
-        await this.envelopePipelined(prepared)
+        transaction = await this.envelopePipelined(prepared)
       } else {
         await this.mail(prepared)
-        await this.rcpt(prepared)
+        transaction = await this.rcpt(prepared)
         await this.data()
       }
-      await this.body(prepared)
+      const response = await this.body(prepared)
       email.setSent()
+      return this.createReceipt(prepared, transaction, response)
     } catch (error) {
       const sendError =
         error instanceof Error
@@ -444,8 +491,11 @@ export class SmtpMailer {
     return this.pipelining === 'auto' && this.supportsPipelining
   }
 
-  private prepareEmail(email: Email): PreparedEmail {
-    const data = email.getEmailData()
+  private async prepareEmail(email: Email): Promise<PreparedEmail> {
+    const messageData = this.dkim
+      ? await signDkimMessage(email.getMessageData(), this.dkim)
+      : email.getMessageData()
+    const data = Email.toSmtpData(messageData)
     return {
       email,
       data,
@@ -870,20 +920,26 @@ export class SmtpMailer {
     }
   }
 
-  private async rcpt(prepared: PreparedEmail) {
+  private async rcpt(prepared: PreparedEmail): Promise<SmtpTransaction> {
+    const transaction: SmtpTransaction = { accepted: [], rejected: [] }
     const allRecipients = this.recipients(prepared.email)
     for (let recipient of allRecipients) {
       const message = this.rcptCommand(recipient, prepared.email)
       await this.writeLine(message)
       const rcptResponse = await this.readTimeout('rcpt', message)
       if (!rcptResponse.startsWith('2')) {
+        transaction.rejected.push(
+          this.rejectedRecipient(recipient, rcptResponse),
+        )
         throw new SMTPError(`Invalid ${message} ${rcptResponse}`, {
           stage: 'rcpt',
           command: message,
           response: rcptResponse,
         })
       }
+      transaction.accepted.push(recipient)
     }
+    return transaction
   }
 
   private async data() {
@@ -899,9 +955,13 @@ export class SmtpMailer {
     }
   }
 
-  private async envelopePipelined(prepared: PreparedEmail) {
+  private async envelopePipelined(
+    prepared: PreparedEmail,
+  ): Promise<SmtpTransaction> {
+    const transaction: SmtpTransaction = { accepted: [], rejected: [] }
     const mailCommand = this.mailCommand(prepared)
-    const recipientCommands = this.recipients(prepared.email).map(recipient =>
+    const recipients = this.recipients(prepared.email)
+    const recipientCommands = recipients.map(recipient =>
       this.rcptCommand(recipient, prepared.email),
     )
     const dataCommand = 'DATA'
@@ -922,14 +982,21 @@ export class SmtpMailer {
       })
     }
 
-    for (const command of recipientCommands) {
+    for (const [index, command] of recipientCommands.entries()) {
       const response = await this.readTimeout('rcpt', command)
-      if (!response.startsWith('2') && !firstError) {
-        firstError = new SMTPError(`Invalid ${command} ${response}`, {
-          stage: 'rcpt',
-          command,
-          response,
-        })
+      if (!response.startsWith('2')) {
+        transaction.rejected.push(
+          this.rejectedRecipient(recipients[index], response),
+        )
+        if (!firstError) {
+          firstError = new SMTPError(`Invalid ${command} ${response}`, {
+            stage: 'rcpt',
+            command,
+            response,
+          })
+        }
+      } else if (response.startsWith('2')) {
+        transaction.accepted.push(recipients[index])
       }
     }
 
@@ -945,6 +1012,8 @@ export class SmtpMailer {
     if (firstError) {
       throw firstError
     }
+
+    return transaction
   }
 
   private async body(prepared: PreparedEmail) {
@@ -957,6 +1026,52 @@ export class SmtpMailer {
         response,
       })
     }
+    return response
+  }
+
+  private createReceipt(
+    prepared: PreparedEmail,
+    transaction: SmtpTransaction,
+    response: string,
+  ): SmtpSendReceipt {
+    return {
+      messageId: prepared.email.headers['Message-ID'] || '',
+      envelope: {
+        from: this.mailFrom(prepared.email),
+        to: this.recipients(prepared.email),
+      },
+      accepted: transaction.accepted,
+      rejected: transaction.rejected,
+      response,
+      responseCode: this.responseCode(response),
+      enhancedStatusCode: this.enhancedStatusCode(response),
+      size: prepared.size,
+    }
+  }
+
+  private rejectedRecipient(
+    recipient: string,
+    response: string,
+  ): SmtpRejectedRecipient {
+    const responseCode = this.responseCode(response)
+    return {
+      recipient,
+      response,
+      responseCode,
+      enhancedStatusCode: this.enhancedStatusCode(response),
+      transient: responseCode
+        ? responseCode >= 400 && responseCode < 500
+        : false,
+    }
+  }
+
+  private responseCode(response: string) {
+    const match = response.match(/^(\d{3})/)
+    return match ? Number(match[1]) : undefined
+  }
+
+  private enhancedStatusCode(response: string) {
+    return response.match(/^\d{3}[ -]([245]\.\d{1,3}\.\d{1,3})\b/)?.at(1)
   }
 
   private async rset() {

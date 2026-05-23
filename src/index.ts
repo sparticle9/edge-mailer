@@ -1,3 +1,5 @@
 export * from './email.ts'
+export * from './dkim.ts'
 export * from './mailer.ts'
+export * from './smtp/pool.ts'
 export { LogLevel } from './logger.ts'

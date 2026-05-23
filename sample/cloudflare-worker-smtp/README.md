@@ -15,6 +15,12 @@ Optional env names:
 - `SMTP_FROM`, defaults to `SMTP_USERNAME` or `SMTP_USER`
 - `SMTP_REPLY_TO`
 - `SMTP_AUTH_TYPE`, comma-separated, defaults to `plain,login,cram-md5`
+- `SMTP_POOL_MAX_CONNECTIONS`, defaults to `1`
+- `SMTP_POOL_MAX_MESSAGES_PER_CONNECTION`, defaults to `20`
+- `SMTP_POOL_IDLE_TIMEOUT_MS`, defaults to `1000`
+- `DKIM_DOMAIN`
+- `DKIM_SELECTOR`
+- `DKIM_PRIVATE_KEY`, PEM content; escaped `\n` sequences are accepted
 
 Run locally from the repo root:
 
@@ -38,10 +44,10 @@ curl http://127.0.0.1:8787
 curl -X POST http://127.0.0.1:8787
 ```
 
-The POST response includes the subject marker after the SMTP server accepts the
-message. That confirms the SMTP transaction completed; final inbox delivery can
-still depend on provider queueing, spam filtering, sender policy, or the
-recipient mailbox.
+The POST response includes the subject marker and SMTP receipt message id after
+the server accepts the message. The sample sends through a bounded pool. That
+confirms the SMTP transaction completed; final inbox delivery can still depend
+on provider queueing, spam filtering, sender policy, or the recipient mailbox.
 
 Cloudflare Workers cannot open outbound TCP sockets to port `25`; use an SMTP
 submission port such as `587` with STARTTLS or `465` with implicit TLS.

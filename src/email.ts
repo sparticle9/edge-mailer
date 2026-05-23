@@ -168,7 +168,7 @@ export class Email {
     return Array.isArray(recipients) ? recipients : [recipients]
   }
 
-  public getEmailData() {
+  public getMessageData() {
     this.resolveHeader()
 
     const headersArray: string[] = ['MIME-Version: 1.0']
@@ -232,14 +232,22 @@ export class Email {
     }
     emailData += `--${mixedBoundary}--\r\n`
 
-    const safeEmailData = this.applyDotStuffing(emailData)
+    return emailData.endsWith('\r\n') ? emailData : `${emailData}\r\n`
+  }
+
+  public getEmailData() {
+    return Email.toSmtpData(this.getMessageData())
+  }
+
+  public static toSmtpData(data: string) {
+    const safeEmailData = Email.applyDotStuffing(data)
 
     return safeEmailData.endsWith('\r\n')
       ? `${safeEmailData}.\r\n`
       : `${safeEmailData}\r\n.\r\n`
   }
 
-  private applyDotStuffing(data: string): string {
+  private static applyDotStuffing(data: string): string {
     let result = data.replace(/\r\n\./g, '\r\n..')
     if (result.startsWith('.')) {
       result = `.${result}`

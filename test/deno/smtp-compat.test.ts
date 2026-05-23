@@ -16,6 +16,7 @@ type ServerState = {
   mailFrom: { address: string; args: Record<string, unknown> }[]
   rcptTo: { address: string; args: Record<string, unknown> }[]
   messages: { raw: string; transmissionType: string }[]
+  connections: number
   resetCount: number
 }
 
@@ -40,6 +41,29 @@ function assertEquals<T>(actual: T, expected: T, message?: string) {
   }
 }
 
+function pem(label: string, data: ArrayBuffer) {
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(data)))
+  const lines = base64.match(/.{1,64}/g)?.join('\n') || base64
+  return `-----BEGIN ${label}-----\n${lines}\n-----END ${label}-----`
+}
+
+async function generateDkimPrivateKey() {
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 1024,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['sign', 'verify'],
+  )
+  return pem(
+    'PRIVATE KEY',
+    await crypto.subtle.exportKey('pkcs8', keyPair.privateKey),
+  )
+}
+
 async function startServer(
   options: SMTPServerOptions = {},
   behavior: {
@@ -51,6 +75,7 @@ async function startServer(
     mailFrom: [],
     rcptTo: [],
     messages: [],
+    connections: 0,
     resetCount: 0,
   }
 
@@ -63,6 +88,10 @@ async function startServer(
     authMethods: ['PLAIN', 'LOGIN', 'CRAM-MD5'],
     disabledCommands: ['STARTTLS'],
     allowInsecureAuth: true,
+    onConnect(_session, callback) {
+      state.connections++
+      callback()
+    },
     onAuth(auth, _session, callback) {
       state.auths.push({ method: auth.method, username: auth.username })
       const method = auth.method as string
@@ -202,11 +231,26 @@ Deno.test(
   async () => {
     const server = await startServer()
     try {
-      await DenoMailer.send(baseConfig(server.port), standardMessage())
+      const receipt = await DenoMailer.send(
+        baseConfig(server.port),
+        standardMessage(),
+      )
 
       assertEquals(server.state.auths, [
         { method: 'PLAIN', username: USERNAME },
       ])
+      assertEquals(receipt.accepted, [
+        'primary@example.com',
+        'named@example.com',
+        'copy@example.com',
+        'hidden@example.com',
+      ])
+      assertEquals(receipt.rejected, [])
+      assertEquals(receipt.responseCode, 250)
+      assert(
+        receipt.messageId.startsWith('<') && receipt.messageId.endsWith('>'),
+        'receipt includes message id',
+      )
       assertEquals(
         server.state.rcptTo.map(recipient => recipient.address),
         [
@@ -254,6 +298,98 @@ Deno.test(
         'SIZE extension is applied when advertised',
       )
     } finally {
+      await server.close()
+    }
+  },
+)
+
+Deno.test(
+  'DenoMailer DKIM signs messages and returns structured receipts through a real SMTP server',
+  async () => {
+    const server = await startServer()
+    try {
+      const receipt = await DenoMailer.send(
+        {
+          ...baseConfig(server.port),
+          dkim: {
+            domainName: 'example.com',
+            keySelector: 'test',
+            privateKey: await generateDkimPrivateKey(),
+          },
+        },
+        standardMessage({
+          to: 'signed@example.com',
+          cc: undefined,
+          bcc: undefined,
+          attachments: undefined,
+          subject: 'Deno DKIM compatibility',
+          text: 'DKIM signed message from Deno.',
+          html: undefined,
+        }),
+      )
+
+      const message = server.state.messages[0]?.raw
+      assert(message, 'SMTP server should receive one signed message')
+      assert(
+        message.startsWith('DKIM-Signature: '),
+        'DKIM signature header is prepended',
+      )
+      assert(message.includes('d=example.com'), 'DKIM domain is present')
+      assert(message.includes('s=test'), 'DKIM selector is present')
+      assert(message.includes('bh='), 'DKIM body hash is present')
+      assert(message.includes('b='), 'DKIM signature is present')
+      assertEquals(receipt.accepted, ['signed@example.com'])
+      assertEquals(receipt.envelope, {
+        from: 'sender@example.com',
+        to: ['signed@example.com'],
+      })
+      assertEquals(receipt.responseCode, 250)
+    } finally {
+      await server.close()
+    }
+  },
+)
+
+Deno.test(
+  'DenoMailer connection pool rotates clients after maxMessagesPerConnection',
+  async () => {
+    const server = await startServer()
+    const pool = DenoMailer.createPool({
+      ...baseConfig(server.port),
+      pool: {
+        maxConnections: 1,
+        maxMessagesPerConnection: 1,
+        idleTimeoutMs: 0,
+      },
+    })
+    try {
+      await pool.send(
+        standardMessage({
+          to: 'pooled-one@example.com',
+          cc: undefined,
+          bcc: undefined,
+          attachments: undefined,
+          subject: 'Pooled one',
+          text: 'First pooled message.',
+          html: undefined,
+        }),
+      )
+      await pool.send(
+        standardMessage({
+          to: 'pooled-two@example.com',
+          cc: undefined,
+          bcc: undefined,
+          attachments: undefined,
+          subject: 'Pooled two',
+          text: 'Second pooled message.',
+          html: undefined,
+        }),
+      )
+
+      assertEquals(server.state.messages.length, 2)
+      assertEquals(server.state.connections, 2)
+    } finally {
+      await pool.close()
       await server.close()
     }
   },

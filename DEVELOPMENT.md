@@ -17,7 +17,7 @@ import { EdgeMailer } from 'edge-mailer/cloudflare'
 
 export default {
   async fetch() {
-    await EdgeMailer.send(
+    const receipt = await EdgeMailer.send(
       {
         host: 'smtp.example.com',
         port: 587,
@@ -38,7 +38,7 @@ export default {
       },
     )
 
-    return Response.json({ ok: true })
+    return Response.json({ ok: true, messageId: receipt.messageId })
   },
 }
 ```
@@ -48,7 +48,7 @@ Use `DenoMailer` from Deno:
 ```ts
 import { DenoMailer } from 'edge-mailer/deno'
 
-await DenoMailer.send(
+const receipt = await DenoMailer.send(
   {
     host: 'smtp.example.com',
     port: 587,
@@ -67,6 +67,8 @@ await DenoMailer.send(
     text: 'Hello from Edge Mailer.',
   },
 )
+
+console.log(receipt.messageId)
 ```
 
 For Queue consumers or scheduled jobs, reuse one SMTP session per invocation:
@@ -197,7 +199,7 @@ Samples live under `sample/`.
 Run the Cloudflare Worker sample from the repo root:
 
 ```sh
-direnv exec . pnpm exec wrangler dev --config sample/cloudflare-worker-smtp/wrangler.toml --local
+pnpm run test:smoke:cloudflare
 ```
 
 Run the Deno direct SMTP smoke from the repo root:
@@ -236,6 +238,8 @@ SMTP_USERNAME=sender@example.com
 SMTP_PASSWORD=secret
 TEST_RECIPIENT_EMAIL=recipient@example.net
 SMTP_AUTH_TYPE=plain,login
+SMTP_POOL_MAX_CONNECTIONS=1
+SMTP_POOL_MAX_MESSAGES_PER_CONNECTION=20
 ```
 
 Run the smoke harness:

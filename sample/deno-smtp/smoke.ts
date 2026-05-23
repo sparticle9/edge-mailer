@@ -2,6 +2,7 @@ import {
   DenoMailer,
   LogLevel,
   type AuthType,
+  type DkimConfig,
   type EdgeMailerOptions,
   type EmailOptions,
 } from '../../src/deno.ts'
@@ -33,6 +34,19 @@ function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
   return values.length === 1 ? values[0] : values
 }
 
+function dkimConfig(): DkimConfig | undefined {
+  const domainName = env('DKIM_DOMAIN')
+  const keySelector = env('DKIM_SELECTOR')
+  const privateKey = env('DKIM_PRIVATE_KEY')?.replace(/\\n/g, '\n')
+  if (!domainName && !keySelector && !privateKey) {
+    return undefined
+  }
+  if (!domainName || !keySelector || !privateKey) {
+    throw new Error('Missing DKIM_DOMAIN, DKIM_SELECTOR, or DKIM_PRIVATE_KEY')
+  }
+  return { domainName, keySelector, privateKey }
+}
+
 const username = env('SMTP_USERNAME') || env('SMTP_USER')
 if (!username) {
   throw new Error('Missing SMTP_USERNAME')
@@ -49,6 +63,14 @@ const config: EdgeMailerOptions = {
     password: required('SMTP_PASSWORD'),
   },
   authType: authTypes(env('SMTP_AUTH_TYPE')),
+  dkim: dkimConfig(),
+  pool: {
+    maxConnections: Number(env('SMTP_POOL_MAX_CONNECTIONS') || 1),
+    maxMessagesPerConnection: Number(
+      env('SMTP_POOL_MAX_MESSAGES_PER_CONNECTION') || 20,
+    ),
+    idleTimeoutMs: Number(env('SMTP_POOL_IDLE_TIMEOUT_MS') || 1_000),
+  },
   logLevel: LogLevel.NONE,
   responseTimeoutMs: Number(env('SMTP_RESPONSE_TIMEOUT_MS') || 30_000),
   socketTimeoutMs: Number(env('SMTP_SOCKET_TIMEOUT_MS') || 30_000),
@@ -67,5 +89,12 @@ const email: EmailOptions = {
   },
 }
 
-await DenoMailer.send(config, email)
-console.log(`Deno SMTP smoke accepted by SMTP server: ${marker}`)
+const pool = DenoMailer.createPool(config)
+try {
+  const receipt = await pool.send(email)
+  console.log(
+    `Deno SMTP smoke accepted by SMTP server: ${marker} ${receipt.messageId}`,
+  )
+} finally {
+  await pool.close()
+}

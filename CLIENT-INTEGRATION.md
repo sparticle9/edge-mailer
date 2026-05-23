@@ -28,7 +28,7 @@ import { EdgeMailer } from 'edge-mailer'
 ## Minimal Send
 
 ```ts
-await EdgeMailer.send(
+const receipt = await EdgeMailer.send(
   {
     host: 'smtp.example.com',
     port: 587,
@@ -47,6 +47,14 @@ await EdgeMailer.send(
     text: 'Hello from Edge Mailer.',
   },
 )
+```
+
+`send()` resolves to a structured receipt:
+
+```ts
+console.log(receipt.messageId)
+console.log(receipt.accepted)
+console.log(receipt.responseCode)
 ```
 
 Use `secure: true` with port `465` for implicit TLS. Use `secure: false` and
@@ -80,6 +88,52 @@ const results = await EdgeMailer.sendBatch(config, emails, {
 When `continueOnError` is true, a failed message is followed by `RSET` before
 the next message is attempted on the same SMTP session.
 
+Use a bounded pool when one invocation needs concurrent or repeated SMTP sends:
+
+```ts
+const pool = EdgeMailer.createPool({
+  ...config,
+  pool: {
+    maxConnections: 2,
+    maxMessagesPerConnection: 50,
+    idleTimeoutMs: 30_000,
+  },
+})
+
+try {
+  const receipt = await pool.send(email)
+  console.log(receipt.messageId)
+} finally {
+  await pool.close()
+}
+```
+
+For Cloudflare Workers, create and close pools inside a request, queue, or
+scheduled handler. Do not rely on a global SMTP socket surviving across Worker
+invocations.
+
+## DKIM
+
+Set `config.dkim` to sign outbound messages before SMTP `DATA`:
+
+```ts
+await EdgeMailer.send(
+  {
+    ...config,
+    dkim: {
+      domainName: 'example.com',
+      keySelector: 'mail',
+      privateKey: env.DKIM_PRIVATE_KEY,
+    },
+  },
+  email,
+)
+```
+
+`privateKey` accepts PEM PKCS#8 private keys and RSA private keys. The default
+signed header list is `from`, `to`, `subject`, `date`, `message-id`,
+`mime-version`, and `content-type`; override it with `dkim.headerFieldNames`.
+
 ## SMTP Feature Mapping
 
 The client uses server-advertised EHLO capabilities and only sends extension
@@ -97,6 +151,7 @@ Supported SMTP features:
 - `SMTPUTF8` through `envelope.smtpUtf8` or non-ASCII envelope addresses
 - `REQUIRETLS` through `envelope.requireTls`
 - `DSN` through `dsn` defaults and per-message `dsnOverride`
+- DKIM signing before `DATA`
 
 ## Envelope Options
 

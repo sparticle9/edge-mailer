@@ -16,6 +16,27 @@ describe('EdgeMailer', () => {
     Buffer.from(value, 'utf8').toString('base64')
   const writtenLines = () =>
     mockWriter.write.mock.calls.map(([arg]: any[]) => decodeWrite(arg))
+  const pem = (label: string, data: ArrayBuffer) => {
+    const base64 = Buffer.from(data).toString('base64')
+    const lines = base64.match(/.{1,64}/g)?.join('\n') || base64
+    return `-----BEGIN ${label}-----\n${lines}\n-----END ${label}-----`
+  }
+  const generateDkimPrivateKey = async () => {
+    const keyPair = await crypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 1024,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256',
+      },
+      true,
+      ['sign', 'verify'],
+    )
+    return pem(
+      'PRIVATE KEY',
+      await crypto.subtle.exportKey('pkcs8', keyPair.privateKey),
+    )
+  }
 
   beforeEach(() => {
     // Reset mocks
@@ -934,18 +955,88 @@ describe('EdgeMailer', () => {
         authType: ['plain'],
       })
 
-      await mailer.send({
+      const receipt = await mailer.send({
         from: 'sender@example.com',
         to: 'recipient@example.com',
         subject: 'Test Email',
         text: 'Hello World',
       })
 
+      expect(receipt).toMatchObject({
+        envelope: {
+          from: 'sender@example.com',
+          to: ['recipient@example.com'],
+        },
+        accepted: ['recipient@example.com'],
+        rejected: [],
+        responseCode: 250,
+      })
+      expect(receipt.messageId).toMatch(/^<.+@example\.com>$/)
+      expect(receipt.response).toContain('Message accepted')
+
       // Verify email commands were sent
       expect(mockWriter.write).toHaveBeenCalledWith(expect.any(Uint8Array)) // MAIL FROM
       expect(mockWriter.write).toHaveBeenCalledWith(expect.any(Uint8Array)) // RCPT TO
       expect(mockWriter.write).toHaveBeenCalledWith(expect.any(Uint8Array)) // DATA
       expect(mockWriter.write).toHaveBeenCalledWith(expect.any(Uint8Array)) // Email content
+    })
+
+    it('should DKIM sign messages before SMTP DATA', async () => {
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH PLAIN\r\n250 AUTH=PLAIN\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('235 Authentication successful\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Sender OK\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Recipient OK\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('354 Start mail input\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('250 Message accepted\r\n'),
+        })
+
+      const mailer = await EdgeMailer.connect({
+        host: 'smtp.example.com',
+        port: 587,
+        credentials: {
+          username: 'test@example.com',
+          password: 'password',
+        },
+        authType: ['plain'],
+        dkim: {
+          domainName: 'example.com',
+          keySelector: 'test',
+          privateKey: await generateDkimPrivateKey(),
+        },
+      })
+
+      await mailer.send({
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        subject: 'Signed Email',
+        text: 'Hello World',
+      })
+
+      const dataWrite = writtenLines().find(line =>
+        line.startsWith('DKIM-Signature:'),
+      )
+      expect(dataWrite).toContain('d=example.com')
+      expect(dataWrite).toContain('s=test')
+      expect(dataWrite).toContain('bh=')
+      expect(dataWrite).toContain('b=')
+      expect(dataWrite).toContain('\r\nMIME-Version: 1.0')
     })
 
     it('should handle recipient rejection', async () => {
@@ -998,6 +1089,101 @@ describe('EdgeMailer', () => {
   })
 
   describe('batch sending', () => {
+    it('should rotate pooled SMTP connections after max messages', async () => {
+      const makeSocket = () => {
+        const reader = {
+          read: vi
+            .fn()
+            .mockResolvedValueOnce({
+              value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+            })
+            .mockResolvedValueOnce({
+              value: new TextEncoder().encode(
+                '250-smtp.example.com\r\n250-AUTH PLAIN\r\n250 AUTH=PLAIN\r\n',
+              ),
+            })
+            .mockResolvedValueOnce({
+              value: new TextEncoder().encode(
+                '235 Authentication successful\r\n',
+              ),
+            })
+            .mockResolvedValueOnce({
+              value: new TextEncoder().encode('250 Sender OK\r\n'),
+            })
+            .mockResolvedValueOnce({
+              value: new TextEncoder().encode('250 Recipient OK\r\n'),
+            })
+            .mockResolvedValueOnce({
+              value: new TextEncoder().encode('354 Start mail input\r\n'),
+            })
+            .mockResolvedValueOnce({
+              value: new TextEncoder().encode('250 Message accepted\r\n'),
+            })
+            .mockResolvedValueOnce({
+              value: new TextEncoder().encode('221 Bye\r\n'),
+            }),
+          releaseLock: vi.fn(),
+        }
+        const writer = {
+          write: vi.fn(),
+          releaseLock: vi.fn(),
+        }
+        return {
+          reader,
+          writer,
+          socket: {
+            readable: { getReader: () => reader },
+            writable: { getWriter: () => writer },
+            opened: Promise.resolve(),
+            close: vi.fn(),
+          },
+        }
+      }
+      const first = makeSocket()
+      const second = makeSocket()
+      ;(connect as any)
+        .mockReset()
+        .mockReturnValueOnce(first.socket)
+        .mockReturnValueOnce(second.socket)
+
+      const pool = EdgeMailer.createPool({
+        host: 'smtp.example.com',
+        port: 587,
+        credentials: {
+          username: 'test@example.com',
+          password: 'password',
+        },
+        authType: ['plain'],
+        pool: {
+          maxConnections: 1,
+          maxMessagesPerConnection: 1,
+          idleTimeoutMs: 0,
+        },
+      })
+
+      await pool.send({
+        from: 'sender@example.com',
+        to: 'recipient1@example.com',
+        subject: 'One',
+        text: 'Hello one',
+      })
+      await pool.send({
+        from: 'sender@example.com',
+        to: 'recipient2@example.com',
+        subject: 'Two',
+        text: 'Hello two',
+      })
+      await pool.close()
+
+      expect(connect).toHaveBeenCalledTimes(2)
+      expect(
+        first.writer.write.mock.calls.map(([arg]: any[]) => decodeWrite(arg)),
+      ).toContain('QUIT\r\n')
+      expect(
+        second.writer.write.mock.calls.map(([arg]: any[]) => decodeWrite(arg)),
+      ).toContain('QUIT\r\n')
+    })
+
     it('should reuse one SMTP connection for a successful batch', async () => {
       mockReader.read
         .mockResolvedValueOnce({
