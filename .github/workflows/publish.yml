@@ -41,7 +41,13 @@ jobs:
 
       - name: Publish to npm
         if: github.event_name == 'release'
-        run: npm publish --access public
+        run: |
+          package_version=$(node -p "require('./package.json').version")
+          if npm view "edge-mailer@${package_version}" version >/dev/null 2>&1; then
+            echo "edge-mailer@${package_version} is already published; skipping npm publish"
+          else
+            npm publish --access public
+          fi
 
       - name: Publish to JSR
         if: github.event_name == 'release'
