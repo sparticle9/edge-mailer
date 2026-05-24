@@ -962,9 +962,18 @@ describe('EdgeMailer', () => {
         to: 'recipient@example.com',
         subject: 'Test Email',
         text: 'Hello World',
+        messageId: '<typed-message@example.com>',
+        inReplyTo: '<parent-message@example.com>',
+        references: [
+          '<root-message@example.com>',
+          '<parent-message@example.com>',
+        ],
       })
 
       expect(receipt).toMatchObject({
+        messageId: '<typed-message@example.com>',
+        inReplyTo: '<parent-message@example.com>',
+        references: '<root-message@example.com> <parent-message@example.com>',
         envelope: {
           from: 'sender@example.com',
           to: ['recipient@example.com'],
@@ -973,7 +982,11 @@ describe('EdgeMailer', () => {
         rejected: [],
         responseCode: 250,
       })
-      expect(receipt.messageId).toMatch(/^<.+@example\.com>$/)
+      expect(receipt.toJSON()).toMatchObject({
+        messageId: '<typed-message@example.com>',
+        inReplyTo: '<parent-message@example.com>',
+        references: '<root-message@example.com> <parent-message@example.com>',
+      })
       expect(receipt.response).toContain('Message accepted')
 
       // Verify email commands were sent

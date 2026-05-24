@@ -104,6 +104,9 @@ export type EmailOptions = {
   text?: string
   html?: string
   headers?: Record<string, string>
+  messageId?: string
+  inReplyTo?: string
+  references?: string | string[]
   attachments?: EmailAttachment[]
   envelope?: MailEnvelopeOptions
   dsnOverride?: DsnOptions
@@ -128,6 +131,12 @@ export class Email {
   public readonly text?: string
   /** HTML body. */
   public readonly html?: string
+  /** Typed Message-ID header override. */
+  public readonly messageId?: string
+  /** Typed In-Reply-To thread header. */
+  public readonly inReplyTo?: string
+  /** Typed References thread header. */
+  public readonly references?: string | string[]
   /** SMTP envelope overrides. */
   public readonly envelope?: Omit<MailEnvelopeOptions, 'to'> & {
     to?: string[]
@@ -174,6 +183,9 @@ export class Email {
     this.subject = options.subject
     this.text = options.text
     this.html = options.html
+    this.messageId = options.messageId
+    this.inReplyTo = options.inReplyTo
+    this.references = options.references
     this.attachments = options.attachments
     this.envelope = options.envelope
       ? {
@@ -533,7 +545,16 @@ export class Email {
     this.headers['Date'] = this.headers['Date'] ?? new Date().toUTCString()
     this.headers['Message-ID'] =
       this.headers['Message-ID'] ??
+      this.messageId ??
       `<${crypto.randomUUID()}@${this.from.email.split('@').pop()}>`
+    if (!this.headers['In-Reply-To'] && this.inReplyTo) {
+      this.headers['In-Reply-To'] = this.inReplyTo
+    }
+    if (!this.headers['References'] && this.references) {
+      this.headers['References'] = Array.isArray(this.references)
+        ? this.references.join(' ')
+        : this.references
+    }
   }
 
   private resolveFrom() {

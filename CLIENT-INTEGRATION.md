@@ -59,6 +59,33 @@ console.log(receipt.accepted)
 console.log(receipt.responseCode)
 ```
 
+## Threading
+
+Use the first send receipt as the stable outbound message identifier for later
+follow-ups:
+
+```ts
+const initial = await EdgeMailer.send(config, {
+  from: 'sender@example.com',
+  to: 'recipient@example.net',
+  subject: 'Project update',
+  text: 'Initial note.',
+})
+
+const reply = await EdgeMailer.send(config, {
+  from: 'sender@example.com',
+  to: 'recipient@example.net',
+  subject: 'Re: Project update',
+  text: 'Follow-up note.',
+  inReplyTo: initial.messageId,
+  references: initial.messageId,
+})
+
+console.log(reply.messageId)
+console.log(reply.inReplyTo)
+console.log(reply.references)
+```
+
 Use `secure: true` with port `465` for implicit TLS. Use `secure: false` and
 `startTls: true` with port `587` for STARTTLS. If `credentials` are omitted,
 the client does not attempt `AUTH`; servers that require auth will reject the

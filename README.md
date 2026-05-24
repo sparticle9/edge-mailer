@@ -34,8 +34,10 @@ Supported today:
   attachment transfer encodings `base64`, `7bit`, and `quoted-printable`.
 - Batch sending over one SMTP session and bounded connection pools.
 - DKIM signing with RSA private keys.
-- Structured send receipts with attempt id, duration, message id, envelope,
-  accepted recipients, final SMTP response, response code, and message size.
+- Typed outbound `Message-ID`, `In-Reply-To`, and `References` headers.
+- Structured send receipts with attempt id, duration, message id, thread
+  headers, envelope, accepted recipients, final SMTP response, response code,
+  and message size.
 - Structured SMTP errors with stage, command, response code, enhanced status
   code, transient classification, reason, retry hint, and next action.
 - Optional observation events for SMTP lifecycle timing, redacted transcript
@@ -113,7 +115,7 @@ Runnable samples and deploy quickstarts live in [sample](sample):
 | Port `25`               | Not supported by Cloudflare Workers                                                                   | Not recommended; provider/runtime policy may vary                    |
 | Auth                    | `PLAIN`, `LOGIN`, `CRAM-MD5`                                                                          | `PLAIN`, `LOGIN`, `CRAM-MD5`                                         |
 | SMTP extensions         | `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`, `REQUIRETLS`, `DSN`                                     | Same shared SMTP core                                                |
-| Message features        | Text, HTML, custom headers, CC/BCC, reply-to, inline/CID attachments, raw byte/Blob attachment inputs | Same shared MIME/message builder                                     |
+| Message features        | Text, HTML, custom headers, CC/BCC, reply-to, outbound threading headers, inline/CID attachments, raw byte/Blob attachment inputs | Same shared MIME/message builder                                     |
 | Pooling and batch       | Bounded pool, `send`, `sendBatch`, `sendMany`                                                         | Same API and behavior                                                |
 | DKIM                    | RSA DKIM signing before `DATA`                                                                        | Same DKIM implementation                                             |
 | Smoke status            | Local Wrangler smoke and live `workers.dev` SMTP acceptance passed                                    | Local Deno SMTP tests and live Deno Deploy v2 SMTP acceptance passed |

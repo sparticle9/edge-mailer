@@ -47,6 +47,8 @@ export type SmtpRejectedRecipient = {
 export type SmtpSendReceipt = {
   attemptId: string
   messageId: string
+  inReplyTo?: string
+  references?: string
   envelope: {
     from: string
     to: string[]
@@ -69,6 +71,8 @@ function smtpSendReceiptToJson(this: SmtpSendReceipt): SmtpSendReceiptJson {
   return {
     attemptId: this.attemptId,
     messageId: this.messageId,
+    inReplyTo: this.inReplyTo,
+    references: this.references,
     envelope: this.envelope,
     accepted: this.accepted,
     rejected: this.rejected,
@@ -1533,6 +1537,8 @@ export class SmtpMailer {
     const receipt: SmtpSendReceipt = {
       attemptId,
       messageId: prepared.email.headers['Message-ID'] || '',
+      inReplyTo: prepared.email.headers['In-Reply-To'],
+      references: prepared.email.headers['References'],
       envelope: {
         from: this.mailFrom(prepared.email),
         to: this.recipients(prepared.email),

@@ -183,6 +183,92 @@ describe('Email', () => {
       expect(data).toContain('X-Custom-Header: Custom Value')
     })
 
+    it('should use typed messageId instead of generating Message-ID', () => {
+      const email = new Email({
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        subject: 'Test Subject',
+        text: 'Hello World',
+        messageId: '<typed-message@example.com>',
+      })
+      const data = email.getEmailData()
+
+      expect(data).toContain('Message-ID: <typed-message@example.com>')
+    })
+
+    it('should keep raw thread headers ahead of typed fields', () => {
+      const email = new Email({
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        subject: 'Test Subject',
+        text: 'Hello World',
+        messageId: '<typed-message@example.com>',
+        inReplyTo: '<typed-parent@example.com>',
+        references: ['<typed-root@example.com>', '<typed-parent@example.com>'],
+        headers: {
+          'Message-ID': '<raw-message@example.com>',
+          'In-Reply-To': '<raw-parent@example.com>',
+          References: '<raw-root@example.com> <raw-parent@example.com>',
+        },
+      })
+      const data = email.getEmailData()
+
+      expect(data).toContain('Message-ID: <raw-message@example.com>')
+      expect(data).toContain('In-Reply-To: <raw-parent@example.com>')
+      expect(data).toContain(
+        'References: <raw-root@example.com> <raw-parent@example.com>',
+      )
+      expect(data).not.toContain('Message-ID: <typed-message@example.com>')
+      expect(data).not.toContain('In-Reply-To: <typed-parent@example.com>')
+      expect(data).not.toContain('<typed-root@example.com>')
+    })
+
+    it('should emit typed In-Reply-To header', () => {
+      const email = new Email({
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        subject: 'Test Subject',
+        text: 'Hello World',
+        inReplyTo: '<parent-message@example.com>',
+      })
+      const data = email.getEmailData()
+
+      expect(data).toContain('In-Reply-To: <parent-message@example.com>')
+    })
+
+    it('should emit typed References header from a string', () => {
+      const email = new Email({
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        subject: 'Test Subject',
+        text: 'Hello World',
+        references: '<root-message@example.com> <parent-message@example.com>',
+      })
+      const data = email.getEmailData()
+
+      expect(data).toContain(
+        'References: <root-message@example.com> <parent-message@example.com>',
+      )
+    })
+
+    it('should emit typed References header from a space-joined array', () => {
+      const email = new Email({
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        subject: 'Test Subject',
+        text: 'Hello World',
+        references: [
+          '<root-message@example.com>',
+          '<parent-message@example.com>',
+        ],
+      })
+      const data = email.getEmailData()
+
+      expect(data).toContain(
+        'References: <root-message@example.com> <parent-message@example.com>',
+      )
+    })
+
     it('should not override custom standard headers', () => {
       const email = new Email({
         from: 'sender@example.com',
