@@ -115,27 +115,38 @@ defaults to `XOAUTH2`. Google SMTP access tokens need the
 `https://mail.google.com/` scope. Microsoft delegated SMTP tokens use
 `https://outlook.office.com/SMTP.Send`.
 
+Minimal calendar-invite payload:
+
+```ts
+await EdgeMailer.send(config, {
+  from: 'sender@example.com',
+  to: 'attendee@example.com',
+  subject: 'Team Sync',
+  text: 'Calendar invite attached.',
+  icalendar: {
+    summary: 'Team Sync',
+    start: '20260601T140000Z',
+    end: '20260601T150000Z',
+    organizer: { email: 'sender@example.com' },
+    attendees: [{ email: 'attendee@example.com', rsvp: true }],
+  },
+})
+```
+
 ### Obtaining XOAUTH2 Credentials
 
 Edge Mailer consumes a short-lived access token at send time. It does **not**
 refresh tokens or run provider consent flows. You must obtain and rotate tokens
 outside the library.
 
-**Google Workspace** — the cleanest programmable path is a service account with
-domain-wide delegation, scoped to `https://mail.google.com/`, minting a
-user-scoped access token for the sending mailbox. Personal Gmail accounts
-require a user OAuth flow (authorization code or device code) with the same
-SMTP scope.
+**Google Workspace** — use a user OAuth flow or domain-wide delegation scoped
+to `https://mail.google.com/`.
 
-**Microsoft 365 / Exchange Online** — work/school tenants can use an Entra ID
-app registration with the `https://outlook.office.com/SMTP.Send` permission.
-Service principals and client-credentials grants are not accepted by the SMTP
-endpoint; the token must be scoped to a licensed mailbox user.
+**Microsoft 365 / Exchange Online** — use an Entra ID app with delegated
+`https://outlook.office.com/SMTP.Send` permission.
 
-**Consumer Outlook / Hotmail** — Microsoft has disabled SMTP AUTH for many
-consumer mailboxes (especially those created in 2026) with no supported way for
-end users to re-enable it. These accounts are not suitable for SMTP-based
-sending through Edge Mailer.
+**Consumer Outlook / Hotmail** — SMTP AUTH is frequently disabled and often not
+re-enabled for consumer mailboxes.
 
 #### Spam Placement
 

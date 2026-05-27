@@ -1,6 +1,6 @@
 {
   "name": "@sparticle9/edge-mailer",
-  "version": "0.7.0",
+  "version": "0.7.5",
   "exports": {
     ".": "./src/index.ts",
     "./cloudflare": "./src/cloudflare.ts",

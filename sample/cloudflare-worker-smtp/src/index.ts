@@ -135,6 +135,7 @@ function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
     },
     envelope: body.envelope,
     dsnOverride: body.dsnOverride,
+    icalendar: body.icalendar,
     attachments: body.attachments || [
       {
         filename: 'edge-mailer-sample.txt',

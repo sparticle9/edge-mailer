@@ -1,6 +1,6 @@
 {
   "name": "edge-mailer",
-  "version": "0.7.0",
+  "version": "0.7.5",
   "description": "SMTP submission toolkit for edge and serverless runtimes.",
   "license": "MIT",
   "author": "sparticle9 <201596840+sparticle9@users.noreply.github.com>",

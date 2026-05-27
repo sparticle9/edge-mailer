@@ -1,4 +1,8 @@
 import { decode, encode, encodeQuotedPrintable } from './utils.ts'
+import {
+  createIcsAttachment,
+  type ICalendarOptions,
+} from './icalendar.ts'
 
 /** Encodes non-ASCII header text using RFC 2047 quoted-printable words. */
 export function encodeHeader(text: string): string {
@@ -110,6 +114,8 @@ export type EmailOptions = {
   attachments?: EmailAttachment[]
   envelope?: MailEnvelopeOptions
   dsnOverride?: DsnOptions
+  /** If provided, generates an iCalendar .ics attachment and appends it to `attachments`. */
+  icalendar?: ICalendarOptions
 }
 
 /** Builds MIME email messages and SMTP DATA payloads from {@link EmailOptions}. */
@@ -187,6 +193,14 @@ export class Email {
     this.inReplyTo = options.inReplyTo
     this.references = options.references
     this.attachments = options.attachments
+      ? [...options.attachments]
+      : []
+
+    // Calendar invite: generate .ics attachment from icalendar options.
+    if (options.icalendar) {
+      this.attachments.push(createIcsAttachment(options.icalendar))
+    }
+
     this.envelope = options.envelope
       ? {
           ...options.envelope,

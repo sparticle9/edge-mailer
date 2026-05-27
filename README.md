@@ -48,10 +48,12 @@ Not supported yet:
 
 - Direct SMTP from Vercel Edge or other runtimes without outbound TCP sockets.
 - True streaming SMTP `DATA` for large attachments.
-- ICS/calendar invite helpers.
 - Open/click tracking, provider webhook receivers, bounce normalization, or
   inbox-placement analytics.
 - HTTP provider SDK wrappers.
+
+Calendar invites are supported via `icalendar` on `EmailOptions`, which
+creates a `.ics` invite attachment for Gmail/Outlook/Apple Mail RSVP rendering.
 
 See [CLIENT-INTEGRATION.md](CLIENT-INTEGRATION.md) for client-side runtime
 imports, SMTP options, envelope/DSN usage, and real-server functional
@@ -60,10 +62,6 @@ testing, runtime samples, and reporting guidance. A sectioned `env.example` at
 the repo root covers the common SMTP, XOAUTH2, DSN, sample, and Graph showcase
 scenarios.
 
-A Graph API send showcase lives under `scripts/graph-send.mjs`. It is kept as a
-repository example only; it is not wired into the supported package surface yet.
-It expects shell env inputs for a single mailbox identity, refresh token, and
-recipient, and captures Graph request metadata for later correlation.
 
 ## Smoke And DSN Evidence
 
