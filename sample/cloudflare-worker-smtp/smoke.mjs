@@ -30,17 +30,35 @@ function required(name) {
   return value
 }
 
+function authTypeValues(value) {
+  return (value || '')
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean)
+}
+
 function collectVars() {
   const username = env('SMTP_USERNAME') || env('SMTP_USER')
   if (!username) {
     throw new Error('Missing SMTP_USERNAME or SMTP_USER')
+  }
+  const requestedAuthTypes = authTypeValues(env('SMTP_AUTH_TYPE'))
+  const useXOAuth2 =
+    requestedAuthTypes.includes('xoauth2') ||
+    (!env('SMTP_PASSWORD') && Boolean(env('SMTP_XOAUTH2_ACCESS_TOKEN')))
+  if (useXOAuth2 && !env('SMTP_XOAUTH2_ACCESS_TOKEN')) {
+    throw new Error('Missing SMTP_XOAUTH2_ACCESS_TOKEN')
+  }
+  if (!useXOAuth2 && !env('SMTP_PASSWORD')) {
+    throw new Error('Missing SMTP_PASSWORD')
   }
 
   const values = {
     SMTP_HOST: required('SMTP_HOST'),
     SMTP_PORT: env('SMTP_PORT'),
     SMTP_USERNAME: username,
-    SMTP_PASSWORD: required('SMTP_PASSWORD'),
+    SMTP_PASSWORD: env('SMTP_PASSWORD'),
+    SMTP_XOAUTH2_ACCESS_TOKEN: env('SMTP_XOAUTH2_ACCESS_TOKEN'),
     SMTP_FROM: env('SMTP_FROM'),
     SMTP_TO: env('SMTP_TO'),
     TEST_RECIPIENT_EMAIL: env('TEST_RECIPIENT_EMAIL'),

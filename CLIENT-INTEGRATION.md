@@ -91,6 +91,30 @@ Use `secure: true` with port `465` for implicit TLS. Use `secure: false` and
 the client does not attempt `AUTH`; servers that require auth will reject the
 envelope command.
 
+For XOAUTH2, provide a valid OAuth access token. Edge Mailer formats and submits
+the SMTP SASL payload; it does not refresh tokens or run provider consent flows.
+
+```ts
+const receipt = await EdgeMailer.send(
+  {
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
+    startTls: true,
+    credentials: {
+      username: 'sender@example.com',
+      accessToken: env.SMTP_XOAUTH2_ACCESS_TOKEN,
+    },
+  },
+  email,
+)
+```
+
+If `credentials.accessToken` is present and `authType` is omitted, the client
+defaults to `XOAUTH2`. Google SMTP access tokens need the
+`https://mail.google.com/` scope. Microsoft delegated SMTP tokens use
+`https://outlook.office.com/SMTP.Send`.
+
 ## Reusing A Session
 
 Use `connect()` when one request, queue batch, or job sends more than one

@@ -14,6 +14,7 @@ type Env = {
   SMTP_USERNAME?: string
   SMTP_USER?: string
   SMTP_PASSWORD?: string
+  SMTP_XOAUTH2_ACCESS_TOKEN?: string
   SMTP_FROM?: string
   SMTP_TO?: string
   TEST_RECIPIENT_EMAIL?: string
@@ -30,13 +31,21 @@ type Env = {
 
 function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
   if (!value) {
-    return ['plain', 'login', 'cram-md5']
+    return undefined
   }
   const values = value
     .split(',')
     .map(item => item.trim().toLowerCase())
     .filter(Boolean) as AuthType[]
   return values.length === 1 ? values[0] : values
+}
+
+function authTypeValues(value: string | undefined): AuthType[] {
+  const values = authTypes(value)
+  if (!values) {
+    return []
+  }
+  return Array.isArray(values) ? values : [values]
 }
 
 function defaultRecipient(env: Env): string | undefined {
@@ -59,18 +68,33 @@ function dkimConfig(env: Env): DkimConfig | undefined {
 function smtpConfig(env: Env): EdgeMailerOptions {
   const username = env.SMTP_USERNAME || env.SMTP_USER
   const port = Number(env.SMTP_PORT || 587)
-  if (!env.SMTP_HOST || !username || !env.SMTP_PASSWORD) {
-    throw new Error('Missing SMTP_HOST, SMTP_USERNAME, or SMTP_PASSWORD')
+  if (!env.SMTP_HOST || !username) {
+    throw new Error('Missing SMTP_HOST or SMTP_USERNAME')
+  }
+  const requestedAuthTypes = authTypeValues(env.SMTP_AUTH_TYPE)
+  const useXOAuth2 =
+    requestedAuthTypes.includes('xoauth2') ||
+    (!env.SMTP_PASSWORD && Boolean(env.SMTP_XOAUTH2_ACCESS_TOKEN))
+  if (useXOAuth2 && !env.SMTP_XOAUTH2_ACCESS_TOKEN) {
+    throw new Error('Missing SMTP_XOAUTH2_ACCESS_TOKEN')
+  }
+  if (!useXOAuth2 && !env.SMTP_PASSWORD) {
+    throw new Error('Missing SMTP_PASSWORD')
   }
   return {
     host: env.SMTP_HOST,
     port,
     secure: port === 465,
     startTls: port !== 465,
-    credentials: {
-      username,
-      password: env.SMTP_PASSWORD,
-    },
+    credentials: useXOAuth2
+      ? {
+          username,
+          accessToken: env.SMTP_XOAUTH2_ACCESS_TOKEN!,
+        }
+      : {
+          username,
+          password: env.SMTP_PASSWORD!,
+        },
     authType: authTypes(env.SMTP_AUTH_TYPE),
     dkim: dkimConfig(env),
     pool: {
@@ -144,7 +168,7 @@ export default {
         configured: Boolean(
           env.SMTP_HOST &&
           (env.SMTP_USERNAME || env.SMTP_USER) &&
-          env.SMTP_PASSWORD,
+          (env.SMTP_PASSWORD || env.SMTP_XOAUTH2_ACCESS_TOKEN),
         ),
         protected: Boolean(env.SAMPLE_SEND_TOKEN),
       })

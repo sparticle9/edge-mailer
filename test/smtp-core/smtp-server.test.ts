@@ -15,9 +15,10 @@ import type { EdgeSocket, EdgeSocketConnector } from '../../src/runtime/socket'
 
 const USERNAME = 'sender@example.com'
 const PASSWORD = 'smtp-password'
+const ACCESS_TOKEN = 'ya29.smtp-core-access-token'
 
 type ServerState = {
-  auths: { method: string; username?: string }[]
+  auths: { method: string; username?: string; accessToken?: string }[]
   mailFrom: { address: string; args: Record<string, unknown> }[]
   rcptTo: { address: string; args: Record<string, unknown> }[]
   messages: { raw: string; secure: boolean; transmissionType: string }[]
@@ -159,13 +160,22 @@ async function startServer(
       callback()
     },
     onAuth(auth, _session, callback) {
-      state.auths.push({ method: auth.method, username: auth.username })
+      const authRecord: ServerState['auths'][number] = {
+        method: auth.method,
+        username: auth.username,
+      }
+      if ('accessToken' in auth && auth.accessToken) {
+        authRecord.accessToken = auth.accessToken
+      }
+      state.auths.push(authRecord)
       const method = auth.method as string
       const valid =
         auth.username === USERNAME &&
-        (method === 'CRAM-MD5'
-          ? auth.validatePassword(PASSWORD)
-          : auth.password === PASSWORD)
+        (method === 'XOAUTH2'
+          ? auth.accessToken === ACCESS_TOKEN
+          : method === 'CRAM-MD5'
+            ? auth.validatePassword(PASSWORD)
+            : auth.password === PASSWORD)
 
       if (valid) {
         callback(null, { user: auth.username })
@@ -339,6 +349,36 @@ describe('SmtpMailer functional SMTP server integration', () => {
 
     expect(server.state.auths).toEqual([
       { method: 'CRAM-MD5', username: USERNAME },
+    ])
+    expect(server.state.messages).toHaveLength(1)
+  })
+
+  it('authenticates against a real XOAUTH2 server challenge', async () => {
+    const server = await startServer({
+      disabledCommands: ['STARTTLS'],
+      allowInsecureAuth: true,
+      authMethods: ['XOAUTH2'],
+    })
+
+    await FunctionalMailer.send(
+      {
+        ...baseConfig(server.port),
+        credentials: {
+          username: USERNAME,
+          accessToken: ACCESS_TOKEN,
+        },
+        authType: 'xoauth2',
+      },
+      {
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        subject: 'XOAUTH2',
+        text: 'XOAUTH2 functional test.',
+      },
+    )
+
+    expect(server.state.auths).toEqual([
+      { method: 'XOAUTH2', username: USERNAME, accessToken: ACCESS_TOKEN },
     ])
     expect(server.state.messages).toHaveLength(1)
   })

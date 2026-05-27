@@ -26,13 +26,21 @@ function recipient(): string {
 
 function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
   if (!value) {
-    return ['plain', 'login', 'cram-md5']
+    return undefined
   }
   const values = value
     .split(',')
     .map(item => item.trim().toLowerCase())
     .filter(Boolean) as AuthType[]
   return values.length === 1 ? values[0] : values
+}
+
+function authTypeValues(value: string | undefined): AuthType[] {
+  const values = authTypes(value)
+  if (!values) {
+    return []
+  }
+  return Array.isArray(values) ? values : [values]
 }
 
 function smokeDsnEnabled(): boolean {
@@ -159,15 +167,25 @@ if (!username) {
 const dsnCapture = createSmokeDsnCapture()
 const observationEvents: MailObservationEvent[] = []
 const port = Number(env('SMTP_PORT') || 587)
+const password = env('SMTP_PASSWORD')
+const accessToken = env('SMTP_XOAUTH2_ACCESS_TOKEN')
+const requestedAuthTypes = authTypeValues(env('SMTP_AUTH_TYPE'))
+const useXOAuth2 =
+  requestedAuthTypes.includes('xoauth2') || (!password && Boolean(accessToken))
+if (useXOAuth2 && !accessToken) {
+  throw new Error('Missing SMTP_XOAUTH2_ACCESS_TOKEN')
+}
+if (!useXOAuth2 && !password) {
+  throw new Error('Missing SMTP_PASSWORD')
+}
 const config: EdgeMailerOptions = {
   host: required('SMTP_HOST'),
   port,
   secure: port === 465,
   startTls: port !== 465,
-  credentials: {
-    username,
-    password: required('SMTP_PASSWORD'),
-  },
+  credentials: useXOAuth2
+    ? { username, accessToken: accessToken! }
+    : { username, password: password! },
   authType: authTypes(env('SMTP_AUTH_TYPE')),
   dkim: dkimConfig(),
   pool: {

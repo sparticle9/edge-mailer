@@ -26,7 +26,8 @@ Supported today:
 - Deno CLI and Deno Deploy v2 direct SMTP through `edge-mailer/deno`.
 - SMTP over implicit TLS on port `465`.
 - SMTP with STARTTLS on port `587`.
-- `PLAIN`, `LOGIN`, and legacy `CRAM-MD5` authentication.
+- `PLAIN`, `LOGIN`, legacy `CRAM-MD5`, and token-only `XOAUTH2`
+  authentication.
 - SMTP extensions: `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`,
   `REQUIRETLS`, and `DSN` when advertised by the server.
 - Plain text, HTML, custom headers, CC, BCC, reply-to, inline/CID
@@ -46,7 +47,6 @@ Supported today:
 Not supported yet:
 
 - Direct SMTP from Vercel Edge or other runtimes without outbound TCP sockets.
-- XOAUTH2.
 - True streaming SMTP `DATA` for large attachments.
 - ICS/calendar invite helpers.
 - Open/click tracking, provider webhook receivers, bounce normalization, or
@@ -113,7 +113,7 @@ Runnable samples and deploy quickstarts live in [sample](sample):
 | Port `587` STARTTLS     | Yes                                                                                                   | Yes                                                                  |
 | Port `465` implicit TLS | Yes                                                                                                   | Yes                                                                  |
 | Port `25`               | Not supported by Cloudflare Workers                                                                   | Not recommended; provider/runtime policy may vary                    |
-| Auth                    | `PLAIN`, `LOGIN`, `CRAM-MD5`                                                                          | `PLAIN`, `LOGIN`, `CRAM-MD5`                                         |
+| Auth                    | `PLAIN`, `LOGIN`, `CRAM-MD5`, `XOAUTH2`                                                               | `PLAIN`, `LOGIN`, `CRAM-MD5`, `XOAUTH2`                              |
 | SMTP extensions         | `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`, `REQUIRETLS`, `DSN`                                     | Same shared SMTP core                                                |
 | Message features        | Text, HTML, custom headers, CC/BCC, reply-to, outbound threading headers, inline/CID attachments, raw byte/Blob attachment inputs | Same shared MIME/message builder                                     |
 | Pooling and batch       | Bounded pool, `send`, `sendBatch`, `sendMany`                                                         | Same API and behavior                                                |
@@ -138,8 +138,8 @@ documented. The next useful work is grouped by product risk:
   the core contract stays small and runtime-neutral.
 - Deliverability and operations: add clearer retry guidance from structured SMTP
   errors, DKIM verification examples, and mailbox delivery caveats.
-- Message features: add XOAUTH2, calendar invite helpers, richer MIME fixtures,
-  and safer large-attachment guidance around provider size limits.
+- Message features: add calendar invite helpers, richer MIME fixtures, and safer
+  large-attachment guidance around provider size limits.
 - No-direct-SMTP runtimes: design a Worker relay path for environments that
   cannot open TCP sockets directly, such as Vercel Edge.
 

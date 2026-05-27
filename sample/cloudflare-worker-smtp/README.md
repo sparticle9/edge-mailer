@@ -26,6 +26,9 @@ SMTP_AUTH_TYPE=plain,login
 SAMPLE_SEND_TOKEN=generate-a-long-random-token
 ```
 
+For XOAUTH2, set `SMTP_AUTH_TYPE=xoauth2` and
+`SMTP_XOAUTH2_ACCESS_TOKEN=<access-token>` instead of `SMTP_PASSWORD`.
+
 Optional runtime env:
 
 ```env

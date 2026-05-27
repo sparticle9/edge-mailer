@@ -10,6 +10,9 @@ describe('observation helpers', () => {
     expect(redactSmtpCommand('AUTH PLAIN AHVzZXIAcGFzcw==\r\n')).toBe(
       'AUTH PLAIN <redacted>',
     )
+    expect(redactSmtpCommand('AUTH XOAUTH2 dXNlcj1hQGI=\r\n')).toBe(
+      'AUTH XOAUTH2 <redacted>',
+    )
     expect(redactSmtpCommand('MAIL FROM: <sender@example.com>\r\n')).toBe(
       'MAIL FROM: <***@example.com>',
     )
@@ -24,9 +27,11 @@ describe('observation helpers', () => {
   it('redacts response addresses and inline token-like values', () => {
     expect(
       redactSmtpResponse(
-        '550 5.1.1 recipient@example.net rejected token=secret-value\r\n',
+        '550 5.1.1 recipient@example.net rejected token=secret-value Bearer ya29.secret\r\n',
       ),
-    ).toBe('550 5.1.1 ***@example.net rejected token=<redacted>')
+    ).toBe(
+      '550 5.1.1 ***@example.net rejected token=<redacted> Bearer <redacted>',
+    )
   })
 
   it('classifies common SMTP failures into retry guidance', () => {

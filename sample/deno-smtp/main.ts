@@ -14,13 +14,21 @@ function env(name: string): string | undefined {
 
 function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
   if (!value) {
-    return ['plain', 'login', 'cram-md5']
+    return undefined
   }
   const values = value
     .split(',')
     .map(item => item.trim().toLowerCase())
     .filter(Boolean) as AuthType[]
   return values.length === 1 ? values[0] : values
+}
+
+function authTypeValues(value: string | undefined): AuthType[] {
+  const values = authTypes(value)
+  if (!values) {
+    return []
+  }
+  return Array.isArray(values) ? values : [values]
 }
 
 function defaultRecipient(): string | undefined {
@@ -43,17 +51,30 @@ function dkimConfig(): DkimConfig | undefined {
 function smtpConfig(): EdgeMailerOptions {
   const username = env('SMTP_USERNAME') || env('SMTP_USER')
   const password = env('SMTP_PASSWORD')
+  const accessToken = env('SMTP_XOAUTH2_ACCESS_TOKEN')
   const host = env('SMTP_HOST')
   const port = Number(env('SMTP_PORT') || 587)
-  if (!host || !username || !password) {
-    throw new Error('Missing SMTP_HOST, SMTP_USERNAME, or SMTP_PASSWORD')
+  if (!host || !username) {
+    throw new Error('Missing SMTP_HOST or SMTP_USERNAME')
+  }
+  const requestedAuthTypes = authTypeValues(env('SMTP_AUTH_TYPE'))
+  const useXOAuth2 =
+    requestedAuthTypes.includes('xoauth2') ||
+    (!password && Boolean(accessToken))
+  if (useXOAuth2 && !accessToken) {
+    throw new Error('Missing SMTP_XOAUTH2_ACCESS_TOKEN')
+  }
+  if (!useXOAuth2 && !password) {
+    throw new Error('Missing SMTP_PASSWORD')
   }
   return {
     host,
     port,
     secure: port === 465,
     startTls: port !== 465,
-    credentials: { username, password },
+    credentials: useXOAuth2
+      ? { username, accessToken: accessToken! }
+      : { username, password: password! },
     authType: authTypes(env('SMTP_AUTH_TYPE')),
     dkim: dkimConfig(),
     pool: {
@@ -119,7 +140,7 @@ Deno.serve(async request => {
       configured: Boolean(
         env('SMTP_HOST') &&
         (env('SMTP_USERNAME') || env('SMTP_USER')) &&
-        env('SMTP_PASSWORD'),
+        (env('SMTP_PASSWORD') || env('SMTP_XOAUTH2_ACCESS_TOKEN')),
       ),
       protected: Boolean(env('SAMPLE_SEND_TOKEN')),
     })

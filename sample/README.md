@@ -28,6 +28,9 @@ TEST_RECIPIENT_EMAIL=recipient@example.net
 SMTP_AUTH_TYPE=plain,login
 ```
 
+For token-only XOAUTH2, set `SMTP_AUTH_TYPE=xoauth2` and
+`SMTP_XOAUTH2_ACCESS_TOKEN` instead of `SMTP_PASSWORD`.
+
 Recommended hosted sample protection:
 
 ```env
@@ -52,8 +55,8 @@ public key (`p=...`); leave `DKIM_PRIVATE_KEY` unset.
 - [Deno sample](deno-smtp)
 
 Both guides keep credentials in ignored local files and upload SMTP credentials
-as runtime secrets. Do not put SMTP passwords, API tokens, or DKIM private keys
-in source files or committed config.
+as runtime secrets. Do not put SMTP passwords, OAuth tokens, API tokens, or DKIM
+private keys in source files or committed config.
 
 ## Optional DSN Smoke Capture
 

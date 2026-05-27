@@ -25,13 +25,51 @@ function required(env, keys) {
 
 function authTypes(value) {
   if (!value) {
-    return ['plain', 'login', 'cram-md5']
+    return undefined
   }
   const values = value
     .split(',')
     .map(item => item.trim().toLowerCase())
     .filter(Boolean)
   return values.length === 1 ? values[0] : values
+}
+
+function authTypeValues(value) {
+  const types = authTypes(value)
+  if (!types) {
+    return []
+  }
+  return Array.isArray(types) ? types : [types]
+}
+
+function smtpCredentials(env) {
+  const username = env.SMTP_USERNAME || env.SMTP_USER
+  const requestedAuthTypes = authTypeValues(env.SMTP_AUTH_TYPE)
+  const useXOAuth2 =
+    requestedAuthTypes.includes('xoauth2') ||
+    (!env.SMTP_PASSWORD && Boolean(env.SMTP_XOAUTH2_ACCESS_TOKEN))
+
+  if (useXOAuth2) {
+    if (!env.SMTP_XOAUTH2_ACCESS_TOKEN) {
+      throw new Error(
+        'Missing required SMTP smoke environment key: SMTP_XOAUTH2_ACCESS_TOKEN',
+      )
+    }
+    return {
+      username,
+      accessToken: env.SMTP_XOAUTH2_ACCESS_TOKEN,
+    }
+  }
+
+  if (!env.SMTP_PASSWORD) {
+    throw new Error(
+      'Missing required SMTP smoke environment key: SMTP_PASSWORD',
+    )
+  }
+  return {
+    username,
+    password: env.SMTP_PASSWORD,
+  }
 }
 
 async function waitForWorker(child) {
@@ -75,16 +113,12 @@ async function postSmoke(body) {
 }
 
 function scenarioConfig(env, port) {
-  const username = env.SMTP_USERNAME || env.SMTP_USER
   return {
     host: env.SMTP_HOST,
     port,
     secure: port === 465,
     startTls: port === 587,
-    credentials: {
-      username,
-      password: env.SMTP_PASSWORD,
-    },
+    credentials: smtpCredentials(env),
     authType: authTypes(env.SMTP_AUTH_TYPE),
     responseTimeoutMs: Number(env.SMTP_RESPONSE_TIMEOUT_MS || 30_000),
     socketTimeoutMs: Number(env.SMTP_SOCKET_TIMEOUT_MS || 30_000),
@@ -109,7 +143,8 @@ async function main() {
   const dsnCapture = createSmokeDsnCapture('cloudflare-local', env)
   const username = env.SMTP_USERNAME || env.SMTP_USER
   env.SMTP_USERNAME = username
-  required(env, ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD'])
+  required(env, ['SMTP_HOST', 'SMTP_USERNAME'])
+  smtpCredentials(env)
   if (!env.SMTP_TO && !env.TEST_RECIPIENT_EMAIL) {
     throw new Error(
       'Missing required SMTP smoke environment keys: SMTP_TO or TEST_RECIPIENT_EMAIL',

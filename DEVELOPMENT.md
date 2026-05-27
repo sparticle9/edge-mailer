@@ -260,9 +260,9 @@ proof.
 
 `pnpm run test:smtp-core` starts a local SMTP server with Nodemailer's
 `smtp-server` package. This is a real SMTP parser/server for the shared SMTP
-core and covers AUTH, implicit TLS, STARTTLS, PIPELINING, SIZE, 8BITMIME,
-SMTPUTF8, REQUIRETLS, DSN, and RSET recovery without using external
-credentials.
+core and covers AUTH, including XOAUTH2, implicit TLS, STARTTLS, PIPELINING,
+SIZE, 8BITMIME, SMTPUTF8, REQUIRETLS, DSN, and RSET recovery without using
+external credentials.
 
 ## SMTP Smoke
 
@@ -278,6 +278,10 @@ SMTP_AUTH_TYPE=plain,login
 SMTP_POOL_MAX_CONNECTIONS=1
 SMTP_POOL_MAX_MESSAGES_PER_CONNECTION=20
 ```
+
+For XOAUTH2 smoke, use `SMTP_AUTH_TYPE=xoauth2` and
+`SMTP_XOAUTH2_ACCESS_TOKEN` instead of `SMTP_PASSWORD`. Tokens must stay in
+local env/secret storage and are never printed by the smoke scripts.
 
 Run the smoke harness:
 

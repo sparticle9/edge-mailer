@@ -505,6 +505,142 @@ describe('EdgeMailer', () => {
       expect(writtenLines()).toContain('AUTH LOGIN\r\n')
     })
 
+    it('should default to XOAUTH2 when access token credentials are present', async () => {
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH XOAUTH2 PLAIN\r\n250 AUTH=XOAUTH2 PLAIN\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('235 2.7.0 Accepted\r\n'),
+        })
+
+      await EdgeMailer.connect({
+        host: 'smtp.example.com',
+        port: 587,
+        credentials: {
+          username: 'test@example.com',
+          accessToken: 'ya29.access-token',
+        },
+      })
+
+      expect(writtenLines()).toEqual([
+        'EHLO 127.0.0.1\r\n',
+        `AUTH XOAUTH2 ${base64('user=test@example.com\u0001auth=Bearer ya29.access-token\u0001\u0001')}\r\n`,
+      ])
+    })
+
+    it('should resolve XOAUTH2 access tokens from a provider callback', async () => {
+      const tokenProvider = vi.fn().mockResolvedValue('ya29.async-token')
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH XOAUTH2\r\n250 AUTH=XOAUTH2\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('235 2.7.0 Accepted\r\n'),
+        })
+
+      await EdgeMailer.connect({
+        host: 'smtp.example.com',
+        port: 587,
+        credentials: {
+          username: 'test@example.com',
+          accessToken: tokenProvider,
+        },
+      })
+
+      expect(tokenProvider).toHaveBeenCalledOnce()
+      expect(writtenLines()).toContain(
+        `AUTH XOAUTH2 ${base64('user=test@example.com\u0001auth=Bearer ya29.async-token\u0001\u0001')}\r\n`,
+      )
+    })
+
+    it('should fail XOAUTH2 auth with refresh-token guidance when the token is missing', async () => {
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH XOAUTH2\r\n250 AUTH=XOAUTH2\r\n',
+          ),
+        })
+
+      await expect(
+        EdgeMailer.connect({
+          host: 'smtp.example.com',
+          port: 587,
+          credentials: {
+            username: 'test@example.com',
+            accessToken: () => ' ',
+          },
+        }),
+      ).rejects.toMatchObject({
+        name: 'SMTPError',
+        stage: 'auth',
+        command: 'AUTH XOAUTH2',
+        reason: 'auth_failed',
+        retryHint: 'do_not_retry',
+        nextAction: 'refresh_token',
+      })
+      expect(mockSocket.close).toHaveBeenCalled()
+    })
+
+    it('should send an empty response before surfacing XOAUTH2 challenge failures', async () => {
+      const challenge = base64(
+        '{"status":"401","schemes":"bearer","scope":"https://mail.google.com/"}',
+      )
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH XOAUTH2\r\n250 AUTH=XOAUTH2\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(`334 ${challenge}\r\n`),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '535 5.7.1 Username and Password not accepted\r\n',
+          ),
+        })
+
+      await expect(
+        EdgeMailer.connect({
+          host: 'smtp.example.com',
+          port: 587,
+          credentials: {
+            username: 'test@example.com',
+            accessToken: 'expired-token',
+          },
+        }),
+      ).rejects.toMatchObject({
+        name: 'SMTPError',
+        stage: 'auth',
+        command: 'AUTH XOAUTH2',
+        responseCode: 535,
+        nextAction: 'refresh_token',
+      })
+      expect(writtenLines()).toEqual([
+        'EHLO 127.0.0.1\r\n',
+        `AUTH XOAUTH2 ${base64('user=test@example.com\u0001auth=Bearer expired-token\u0001\u0001')}\r\n`,
+        '\r\n',
+      ])
+      expect(mockSocket.close).toHaveBeenCalled()
+    })
+
     it('should throw structured error on PLAIN auth failure', async () => {
       mockReader.read
         .mockResolvedValueOnce({

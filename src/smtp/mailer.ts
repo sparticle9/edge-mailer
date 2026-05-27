@@ -23,14 +23,31 @@ import {
 import type { EdgeSocket, EdgeSocketConnector } from '../runtime/socket.ts'
 
 /** SMTP authentication mechanisms supported by the shared SMTP client. */
-export type AuthType = 'plain' | 'login' | 'cram-md5'
-const DEFAULT_AUTH_TYPES: AuthType[] = ['plain', 'login', 'cram-md5']
+export type AuthType = 'plain' | 'login' | 'cram-md5' | 'xoauth2'
+const DEFAULT_PASSWORD_AUTH_TYPES: AuthType[] = ['plain', 'login', 'cram-md5']
+const DEFAULT_XOAUTH2_AUTH_TYPES: AuthType[] = ['xoauth2']
 
-/** Username and password used for SMTP AUTH. */
-export type Credentials = {
+/** Lazily or eagerly provided OAuth access token used for SMTP XOAUTH2. */
+export type XOAuth2AccessTokenProvider =
+  | string
+  | (() => string | Promise<string>)
+
+/** Username and password used for SMTP password AUTH mechanisms. */
+export type PasswordCredentials = {
   username: string
   password: string
+  accessToken?: never
 }
+
+/** Username and OAuth access token used for SMTP XOAUTH2. */
+export type XOAuth2Credentials = {
+  username: string
+  accessToken: XOAuth2AccessTokenProvider
+  password?: never
+}
+
+/** Credentials used for SMTP AUTH. */
+export type Credentials = PasswordCredentials | XOAuth2Credentials
 /** Controls ordered batch behavior when one message fails. */
 export type BatchSendOptions = {
   continueOnError?: boolean
@@ -370,6 +387,24 @@ function normalizeOrcpt(value: string) {
   return value.includes(';') ? value : `rfc822;${value}`
 }
 
+function defaultAuthTypes(credentials: Credentials | undefined): AuthType[] {
+  return isXOAuth2Credentials(credentials)
+    ? DEFAULT_XOAUTH2_AUTH_TYPES
+    : DEFAULT_PASSWORD_AUTH_TYPES
+}
+
+function isPasswordCredentials(
+  credentials: Credentials | undefined,
+): credentials is PasswordCredentials {
+  return Boolean(credentials && 'password' in credentials)
+}
+
+function isXOAuth2Credentials(
+  credentials: Credentials | undefined,
+): credentials is XOAuth2Credentials {
+  return Boolean(credentials && 'accessToken' in credentials)
+}
+
 /** SMTP client configuration shared by Cloudflare and Deno runtimes. */
 export type EdgeMailerOptions = {
   host: string
@@ -464,7 +499,7 @@ export class SmtpMailer {
     } else if (typeof options.authType === 'string') {
       this.authType = [options.authType]
     } else {
-      this.authType = DEFAULT_AUTH_TYPES
+      this.authType = defaultAuthTypes(options.credentials)
     }
     this.startTls = options.startTls === undefined ? true : options.startTls
     this.credentials = options.credentials
@@ -621,10 +656,10 @@ export class SmtpMailer {
     })
   }
 
-  private failureEvent(stage: SMTPStage, error: unknown): Pick<
-    MailObservationEvent,
-    'reason' | 'retryHint' | 'nextAction'
-  > & {
+  private failureEvent(
+    stage: SMTPStage,
+    error: unknown,
+  ): Pick<MailObservationEvent, 'reason' | 'retryHint' | 'nextAction'> & {
     responseCode?: number
     enhancedStatusCode?: string
     command?: string
@@ -1202,7 +1237,8 @@ export class SmtpMailer {
           if (
             normalized === 'plain' ||
             normalized === 'login' ||
-            normalized === 'cram-md5'
+            normalized === 'cram-md5' ||
+            normalized === 'xoauth2'
           ) {
             this.authTypeSupported.push(normalized)
           }
@@ -1269,22 +1305,32 @@ export class SmtpMailer {
       return
     }
     const startedAt = Date.now()
+    const credentials = this.credentials
     try {
       if (
-        this.authTypeSupported.includes('plain') &&
-        this.authType.includes('plain')
+        this.authTypeSupported.includes('xoauth2') &&
+        this.authType.includes('xoauth2') &&
+        isXOAuth2Credentials(credentials)
       ) {
-        await this.authWithPlain()
+        await this.authWithXOAuth2(credentials)
+      } else if (
+        this.authTypeSupported.includes('plain') &&
+        this.authType.includes('plain') &&
+        isPasswordCredentials(credentials)
+      ) {
+        await this.authWithPlain(credentials)
       } else if (
         this.authTypeSupported.includes('login') &&
-        this.authType.includes('login')
+        this.authType.includes('login') &&
+        isPasswordCredentials(credentials)
       ) {
-        await this.authWithLogin()
+        await this.authWithLogin(credentials)
       } else if (
         this.authTypeSupported.includes('cram-md5') &&
-        this.authType.includes('cram-md5')
+        this.authType.includes('cram-md5') &&
+        isPasswordCredentials(credentials)
       ) {
-        await this.authWithCramMD5()
+        await this.authWithCramMD5(credentials)
       } else {
         throw new SMTPError('No supported auth method found.', {
           stage: 'auth',
@@ -1308,9 +1354,9 @@ export class SmtpMailer {
     }
   }
 
-  private async authWithPlain() {
+  private async authWithPlain(credentials: PasswordCredentials) {
     const command = `AUTH PLAIN ${btoa(
-      `\u0000${this.credentials!.username}\u0000${this.credentials!.password}`,
+      `\u0000${credentials.username}\u0000${credentials.password}`,
     )}`
     await this.writeLine(command)
     const authResult = await this.readTimeout('auth', 'AUTH PLAIN')
@@ -1323,7 +1369,7 @@ export class SmtpMailer {
     }
   }
 
-  private async authWithLogin() {
+  private async authWithLogin(credentials: PasswordCredentials) {
     await this.writeLine(`AUTH LOGIN`)
     const startLoginResponse = await this.readTimeout('auth', 'AUTH LOGIN')
     if (!startLoginResponse.startsWith('3')) {
@@ -1334,7 +1380,7 @@ export class SmtpMailer {
       })
     }
 
-    const usernameBase64 = btoa(this.credentials!.username)
+    const usernameBase64 = btoa(credentials.username)
     await this.writeLine(usernameBase64, 'AUTH LOGIN username <redacted>')
     const userResponse = await this.readTimeout('auth', 'AUTH LOGIN username')
     if (!userResponse.startsWith('3')) {
@@ -1345,7 +1391,7 @@ export class SmtpMailer {
       })
     }
 
-    const passwordBase64 = btoa(this.credentials!.password)
+    const passwordBase64 = btoa(credentials.password)
     await this.writeLine(passwordBase64, 'AUTH LOGIN password <redacted>')
     const authResult = await this.readTimeout('auth', 'AUTH LOGIN password')
     if (!authResult.startsWith('2')) {
@@ -1357,7 +1403,7 @@ export class SmtpMailer {
     }
   }
 
-  private async authWithCramMD5() {
+  private async authWithCramMD5(credentials: PasswordCredentials) {
     const command = 'AUTH CRAM-MD5'
     await this.writeLine(command)
     const challengeResponse = await this.readTimeout('auth', command)
@@ -1384,13 +1430,10 @@ export class SmtpMailer {
       })
     }
 
-    const challengeSolved = hmacMd5Hex(
-      encode(this.credentials!.password),
-      challenge,
-    )
+    const challengeSolved = hmacMd5Hex(encode(credentials.password), challenge)
 
     await this.writeLine(
-      btoa(`${this.credentials!.username} ${challengeSolved}`),
+      btoa(`${credentials.username} ${challengeSolved}`),
       'AUTH CRAM-MD5 <redacted>',
     )
     const authResult = await this.readTimeout('auth', command)
@@ -1401,6 +1444,60 @@ export class SmtpMailer {
         response: authResult,
       })
     }
+  }
+
+  private async authWithXOAuth2(credentials: XOAuth2Credentials) {
+    const accessToken = await this.resolveXOAuth2AccessToken(credentials)
+    const command = `AUTH XOAUTH2 ${btoa(
+      `user=${credentials.username}\u0001auth=Bearer ${accessToken}\u0001\u0001`,
+    )}`
+    await this.writeLine(command)
+    const authResult = await this.readTimeout('auth', 'AUTH XOAUTH2')
+    if (authResult.startsWith('2')) {
+      return
+    }
+
+    if (authResult.startsWith('334')) {
+      await this.writeLine('', 'AUTH XOAUTH2 empty response')
+      const finalResponse = await this.readTimeout('auth', 'AUTH XOAUTH2')
+      if (finalResponse.startsWith('2')) {
+        return
+      }
+      throw this.xoauth2AuthError(finalResponse)
+    }
+
+    throw this.xoauth2AuthError(authResult)
+  }
+
+  private async resolveXOAuth2AccessToken(
+    credentials: XOAuth2Credentials,
+  ): Promise<string> {
+    const token =
+      typeof credentials.accessToken === 'function'
+        ? await credentials.accessToken()
+        : credentials.accessToken
+    const accessToken = token.trim()
+    if (!accessToken) {
+      throw new SMTPError('Missing XOAUTH2 access token', {
+        stage: 'auth',
+        command: 'AUTH XOAUTH2',
+        reason: 'auth_failed',
+        retryHint: 'do_not_retry',
+        nextAction: 'refresh_token',
+      })
+    }
+    return accessToken
+  }
+
+  private xoauth2AuthError(response: string): SMTPError {
+    return new SMTPError(`Failed to xoauth2 authentication: ${response}`, {
+      stage: 'auth',
+      command: 'AUTH XOAUTH2',
+      response,
+      reason: 'auth_failed',
+      retryHint: 'do_not_retry',
+      nextAction: 'refresh_token',
+    })
   }
 
   private async mail(prepared: PreparedEmail) {
