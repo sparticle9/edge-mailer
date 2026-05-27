@@ -41,6 +41,46 @@ check(
   packageJson.publishConfig?.access === 'public',
   'package.json publishConfig.access must be public',
 )
+check(
+  packageJson.files?.includes('llms.txt'),
+  'package.json files must include llms.txt',
+)
+check(
+  packageJson.files?.includes('.agents/skills/edge-mailer/SKILL.md'),
+  'package.json files must include .agents/skills/edge-mailer/SKILL.md',
+)
+check(
+  !packageJson.files?.some(
+    entry => entry === 'sample' || entry.startsWith('sample/'),
+  ),
+  'package.json files must not include sample/; samples are repo-only',
+)
+check(
+  !packageJson.files?.some(
+    entry => entry === 'test' || entry.startsWith('test/'),
+  ),
+  'package.json files must not include test/; tests are repo-only',
+)
+check(
+  jsrJson.publish?.include?.includes('llms.txt'),
+  'jsr.json publish.include must include llms.txt',
+)
+check(
+  jsrJson.publish?.include?.includes('.agents/skills/edge-mailer/SKILL.md'),
+  'jsr.json publish.include must include .agents/skills/edge-mailer/SKILL.md',
+)
+check(
+  !jsrJson.publish?.include?.some(
+    entry => entry === 'sample' || entry.startsWith('sample/'),
+  ),
+  'jsr.json publish.include must not include sample/; samples are repo-only',
+)
+check(
+  !jsrJson.publish?.include?.some(
+    entry => entry === 'test' || entry.startsWith('test/'),
+  ),
+  'jsr.json publish.include must not include test/; tests are repo-only',
+)
 
 if (releaseTag) {
   check(

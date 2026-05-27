@@ -91,6 +91,23 @@ Use `secure: true` with port `465` for implicit TLS. Use `secure: false` and
 the client does not attempt `AUTH`; servers that require auth will reject the
 envelope command.
 
+For production SMTP submission, require TLS explicitly:
+
+```ts
+const config = {
+  host: 'smtp.example.com',
+  port: 587,
+  secure: false,
+  startTls: true,
+  tlsPolicy: 'require-starttls',
+  signal: request.signal,
+} satisfies EdgeMailerOptions
+```
+
+Use `tlsPolicy: 'require-tls'` with `secure: true` on port `465`. The receipt
+includes `tlsMode` so callers can persist whether the send used `none`,
+`implicit`, or `starttls`.
+
 For XOAUTH2, provide a valid OAuth access token. Edge Mailer formats and submits
 the SMTP SASL payload; it does not refresh tokens or run provider consent flows.
 
@@ -114,6 +131,37 @@ If `credentials.accessToken` is present and `authType` is omitted, the client
 defaults to `XOAUTH2`. Google SMTP access tokens need the
 `https://mail.google.com/` scope. Microsoft delegated SMTP tokens use
 `https://outlook.office.com/SMTP.Send`.
+
+Probe capabilities before onboarding a provider:
+
+```ts
+const capabilities = await EdgeMailer.probe({
+  host: 'smtp.example.com',
+  port: 587,
+  startTls: true,
+  tlsPolicy: 'require-starttls',
+})
+
+console.log(capabilities.auth.mechanisms)
+console.log(capabilities.extensions)
+```
+
+Provider profile helpers are available when they reduce config mistakes:
+
+```ts
+import { googleWorkspaceProfile, sesSmtpProfile } from 'edge-mailer/cloudflare'
+
+const googleConfig = googleWorkspaceProfile({
+  username: 'sender@example.com',
+  accessToken: env.SMTP_XOAUTH2_ACCESS_TOKEN,
+})
+
+const sesConfig = sesSmtpProfile({
+  region: 'us-east-1',
+  username: env.SES_SMTP_USERNAME,
+  password: env.SES_SMTP_PASSWORD,
+})
+```
 
 Minimal calendar-invite payload:
 

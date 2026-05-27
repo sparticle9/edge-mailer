@@ -159,7 +159,6 @@ Run the SMTP core tests against a real local SMTP server:
 pnpm run test:smtp-core
 ```
 
-
 Run Deno checks:
 
 ```sh
@@ -193,6 +192,13 @@ Run the local release gate:
 pnpm run release:dry-run
 ```
 
+`release:check` also guards package shape: `llms.txt` and the Edge Mailer skill
+must be included, while `sample/` and `test/` stay repo-only. Use
+`npm pack --dry-run --json` before publishing and review the file list; it
+should contain `dist`, public docs, `llms.txt`, the skill file, and package
+metadata, not local samples, tests, smoke artifacts, reference checkouts, or
+secrets.
+
 Future release notes and version bumps should start with Changesets:
 
 ```sh
@@ -216,7 +222,9 @@ version is already published.
 
 ## Test Layout
 
-Tests are grouped by runtime purpose:
+`test/` is internal verification. It proves library behavior and runtime
+boundaries; it is not a user-facing integration template and is not included in
+the npm or JSR package. Tests are grouped by runtime purpose:
 
 - `test/unit/`: Cloudflare-pool Vitest unit tests and runtime boundary checks.
 - `test/smtp-core/`: Node Vitest tests for shared SMTP session behavior against
@@ -227,7 +235,10 @@ Tests are grouped by runtime purpose:
 
 ## Runtime Samples
 
-Samples live under `sample/`.
+`sample/` is user-facing runnable material. These apps are kept in the OSS repo
+so users can deploy or adapt them, but they are not part of the npm/JSR package
+payload. Sample code may use local env files and deployment configs; test code
+should remain focused on assertions and regression coverage.
 
 Run the Cloudflare Worker sample from the repo root:
 

@@ -30,6 +30,11 @@ Supported today:
   authentication.
 - SMTP extensions: `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`,
   `REQUIRETLS`, and `DSN` when advertised by the server.
+- Abortable connect/send/batch operations through `AbortSignal`.
+- Explicit TLS policy controls for required STARTTLS or implicit TLS.
+- No-send SMTP capability probing for onboarding providers.
+- Provider profile helpers for Google Workspace, Microsoft 365, SES SMTP,
+  Yandex SMTP, and custom SMTP.
 - Plain text, HTML, custom headers, CC, BCC, reply-to, inline/CID
   attachments, raw `Uint8Array`/`ArrayBuffer`/`Blob` attachment content, and
   attachment transfer encodings `base64`, `7bit`, and `quoted-printable`.
@@ -43,6 +48,7 @@ Supported today:
   code, transient classification, reason, retry hint, and next action.
 - Optional observation events for SMTP lifecycle timing, redacted transcript
   summaries, and lightweight pool activity.
+- Agent-facing `llms.txt` and a repo-local Edge Mailer skill artifact.
 
 Not supported yet:
 
@@ -62,6 +68,47 @@ testing, runtime samples, and reporting guidance. A sectioned `env.example` at
 the repo root covers the common SMTP, XOAUTH2, DSN, sample, and Graph showcase
 scenarios.
 
+## Repository Shape
+
+The npm and JSR packages ship the library build/source, core docs, `llms.txt`,
+and the Edge Mailer agent skill. They intentionally do not ship runnable sample
+apps or internal tests.
+
+- `src/`: the package implementation and public runtime entrypoints.
+- `sample/`: runnable OSS Worker/Deno apps with deploy and live-smoke
+  instructions. Treat these as user-facing examples and integration starters.
+- `test/`: internal verification suites for protocol, runtime boundaries, and
+  regression coverage. Do not use this folder as user documentation.
+- `scripts/`: release checks, local smoke helpers, and package maintenance.
+
+## Capability Probe
+
+Probe a provider before sending mail:
+
+```ts
+const capabilities = await EdgeMailer.probe({
+  host: 'smtp.example.com',
+  port: 587,
+  startTls: true,
+  tlsPolicy: 'require-starttls',
+})
+```
+
+The probe connects, reads the greeting, sends `EHLO`, upgrades STARTTLS when
+configured and advertised, reports capabilities, and closes without
+authenticating or sending mail.
+
+Provider profile helpers set conservative SMTP defaults without owning OAuth
+consent, token refresh, or provider-native REST APIs:
+
+```ts
+import { googleWorkspaceProfile } from 'edge-mailer/cloudflare'
+
+const config = googleWorkspaceProfile({
+  username: 'sender@example.com',
+  accessToken: env.SMTP_XOAUTH2_ACCESS_TOKEN,
+})
+```
 
 ## Smoke And DSN Evidence
 
@@ -109,22 +156,22 @@ Runnable samples and deploy quickstarts live in [sample](sample):
 
 ## Runtime Matrix
 
-| Capability              | Cloudflare Workers                                                                                    | Deno CLI / Deno Deploy v2                                            |
-| ----------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Import path             | `edge-mailer/cloudflare`                                                                              | `edge-mailer/deno`                                                   |
-| Runtime class           | `EdgeMailer`                                                                                          | `DenoMailer`                                                         |
-| Socket backend          | `cloudflare:sockets`                                                                                  | `Deno.connect`, `Deno.connectTls`, `Deno.startTls`                   |
-| Direct SMTP             | Yes, outbound TCP sockets                                                                             | Yes, Deno TCP/TLS sockets                                            |
-| Port `587` STARTTLS     | Yes                                                                                                   | Yes                                                                  |
-| Port `465` implicit TLS | Yes                                                                                                   | Yes                                                                  |
-| Port `25`               | Not supported by Cloudflare Workers                                                                   | Not recommended; provider/runtime policy may vary                    |
-| Auth                    | `PLAIN`, `LOGIN`, `CRAM-MD5`, `XOAUTH2`                                                               | `PLAIN`, `LOGIN`, `CRAM-MD5`, `XOAUTH2`                              |
-| SMTP extensions         | `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`, `REQUIRETLS`, `DSN`                                     | Same shared SMTP core                                                |
+| Capability              | Cloudflare Workers                                                                                                                | Deno CLI / Deno Deploy v2                                            |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Import path             | `edge-mailer/cloudflare`                                                                                                          | `edge-mailer/deno`                                                   |
+| Runtime class           | `EdgeMailer`                                                                                                                      | `DenoMailer`                                                         |
+| Socket backend          | `cloudflare:sockets`                                                                                                              | `Deno.connect`, `Deno.connectTls`, `Deno.startTls`                   |
+| Direct SMTP             | Yes, outbound TCP sockets                                                                                                         | Yes, Deno TCP/TLS sockets                                            |
+| Port `587` STARTTLS     | Yes                                                                                                                               | Yes                                                                  |
+| Port `465` implicit TLS | Yes                                                                                                                               | Yes                                                                  |
+| Port `25`               | Not supported by Cloudflare Workers                                                                                               | Not recommended; provider/runtime policy may vary                    |
+| Auth                    | `PLAIN`, `LOGIN`, `CRAM-MD5`, `XOAUTH2`                                                                                           | `PLAIN`, `LOGIN`, `CRAM-MD5`, `XOAUTH2`                              |
+| SMTP extensions         | `PIPELINING`, `SIZE`, `8BITMIME`, `SMTPUTF8`, `REQUIRETLS`, `DSN`                                                                 | Same shared SMTP core                                                |
 | Message features        | Text, HTML, custom headers, CC/BCC, reply-to, outbound threading headers, inline/CID attachments, raw byte/Blob attachment inputs | Same shared MIME/message builder                                     |
-| Pooling and batch       | Bounded pool, `send`, `sendBatch`, `sendMany`                                                         | Same API and behavior                                                |
-| DKIM                    | RSA DKIM signing before `DATA`                                                                        | Same DKIM implementation                                             |
-| Smoke status            | Local Wrangler smoke and live `workers.dev` SMTP acceptance passed                                    | Local Deno SMTP tests and live Deno Deploy v2 SMTP acceptance passed |
-| Status                  | First-class edge runtime support                                                                      | First-class edge runtime support                                     |
+| Pooling and batch       | Bounded pool, `send`, `sendBatch`, `sendMany`                                                                                     | Same API and behavior                                                |
+| DKIM                    | RSA DKIM signing before `DATA`                                                                                                    | Same DKIM implementation                                             |
+| Smoke status            | Local Wrangler smoke and live `workers.dev` SMTP acceptance passed                                                                | Local Deno SMTP tests and live Deno Deploy v2 SMTP acceptance passed |
+| Status                  | First-class edge runtime support                                                                                                  | First-class edge runtime support                                     |
 
 ## Roadmap
 
@@ -135,9 +182,9 @@ documented. The next useful work is grouped by product risk:
 - Stabilization: publish a v0 package surface, keep runtime subpaths stable,
   expand live smokes across at least two SMTP providers, and keep package
   contents free of local reference material and secrets.
-- Runtime coverage: continue hardening Deno Deploy v2, add CI-friendly sample
-  deployment checks, and document any runtime-specific socket limitations before
-  adding another runtime.
+- Runtime coverage: keep the Cloudflare Worker and Deno samples deployable,
+  add CI-friendly sample checks, and document any runtime-specific socket
+  limitations before adding another runtime.
 - Observability: keep structured SMTP lifecycle events and redacted debug
   logging focused on SMTP server acceptance; add optional bridges only after
   the core contract stays small and runtime-neutral.
@@ -145,8 +192,9 @@ documented. The next useful work is grouped by product risk:
   errors, DKIM verification examples, and mailbox delivery caveats.
 - Message features: add calendar invite helpers, richer MIME fixtures, and safer
   large-attachment guidance around provider size limits.
-- No-direct-SMTP runtimes: design a Worker relay path for environments that
-  cannot open TCP sockets directly, such as Vercel Edge.
+- Hosted Worker sample: keep the Cloudflare Worker sample ready to deploy with
+  health, capability probe, dry-run rendering, and send endpoints. Generic
+  socketless-runtime relay work is deferred until users need it.
 
 Attachment ergonomics now favor raw `Uint8Array`, `ArrayBuffer`, and `Blob`
 inputs while reducing avoidable base64 wrapping copies. True one-pass streaming
