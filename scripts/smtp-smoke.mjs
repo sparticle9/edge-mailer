@@ -79,7 +79,9 @@ async function waitForWorker(child) {
       throw new Error(`wrangler dev exited early with code ${child.exitCode}`)
     }
     try {
-      const response = await fetch(baseUrl)
+      const response = await fetch(baseUrl, {
+        headers: { connection: 'close' },
+      })
       if (response.status === 405) {
         return
       }
@@ -94,7 +96,7 @@ async function waitForWorker(child) {
 async function postSmoke(body) {
   const response = await fetch(baseUrl, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { connection: 'close', 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   const text = await response.text()
@@ -136,6 +138,29 @@ function emailBase(env, subject) {
       'X-Edge-Mailer-Smoke': 'true',
     },
   }
+}
+
+async function stopWorker(child) {
+  const closePromise = new Promise(resolve => {
+    child.once('close', resolve)
+  })
+
+  if (child.exitCode === null) {
+    child.kill('SIGTERM')
+    const stopped = await Promise.race([
+      closePromise.then(() => true),
+      delay(2_000).then(() => false),
+    ])
+    if (!stopped && child.exitCode === null) {
+      child.kill('SIGKILL')
+      await Promise.race([closePromise, delay(1_000)])
+    }
+  }
+
+  child.stdout?.removeAllListeners('data')
+  child.stderr?.removeAllListeners('data')
+  child.stdout?.destroy()
+  child.stderr?.destroy()
 }
 
 async function main() {
@@ -279,11 +304,7 @@ async function main() {
     }
     process.exitCode = 1
   } finally {
-    wrangler.kill('SIGTERM')
-    await delay(500)
-    if (wrangler.exitCode === null) {
-      wrangler.kill('SIGKILL')
-    }
+    await stopWorker(wrangler)
   }
 }
 
