@@ -94,11 +94,6 @@ envelope command.
 For XOAUTH2, provide a valid OAuth access token. Edge Mailer formats and submits
 the SMTP SASL payload; it does not refresh tokens or run provider consent flows.
 
-Graph API is not a supported transport in the package surface yet. A repository
-showcase script under `scripts/graph-send.mjs` demonstrates one possible Graph
-send path with env-driven inputs and request-id capture, but it is intentionally
-kept outside the exported API until the design is ready.
-
 ```ts
 const receipt = await EdgeMailer.send(
   {
@@ -119,6 +114,43 @@ If `credentials.accessToken` is present and `authType` is omitted, the client
 defaults to `XOAUTH2`. Google SMTP access tokens need the
 `https://mail.google.com/` scope. Microsoft delegated SMTP tokens use
 `https://outlook.office.com/SMTP.Send`.
+
+### Obtaining XOAUTH2 Credentials
+
+Edge Mailer consumes a short-lived access token at send time. It does **not**
+refresh tokens or run provider consent flows. You must obtain and rotate tokens
+outside the library.
+
+**Google Workspace** — the cleanest programmable path is a service account with
+domain-wide delegation, scoped to `https://mail.google.com/`, minting a
+user-scoped access token for the sending mailbox. Personal Gmail accounts
+require a user OAuth flow (authorization code or device code) with the same
+SMTP scope.
+
+**Microsoft 365 / Exchange Online** — work/school tenants can use an Entra ID
+app registration with the `https://outlook.office.com/SMTP.Send` permission.
+Service principals and client-credentials grants are not accepted by the SMTP
+endpoint; the token must be scoped to a licensed mailbox user.
+
+**Consumer Outlook / Hotmail** — Microsoft has disabled SMTP AUTH for many
+consumer mailboxes (especially those created in 2026) with no supported way for
+end users to re-enable it. These accounts are not suitable for SMTP-based
+sending through Edge Mailer.
+
+#### Spam Placement
+
+Passing SMTP authentication (SPF, DKIM, DMARC) is necessary but **not
+sufficient** for inbox delivery. Gmail, Outlook, and other providers weigh many
+signals beyond authentication, including sender reputation, domain age, sending
+patterns, content, and recipient engagement. A message accepted by the SMTP
+server may still land in the spam folder or be silently dropped.
+
+For **Google Workspace** domains, configure SPF, DKIM, and DMARC correctly when
+onboarding a new sending domain. With Google as your email provider, SPF should
+include `_spf.google.com`, DKIM keys are generated in the Admin console, and a
+DMARC policy (starting with `p=none` for monitoring) should be published at
+`_dmarc.<domain>`. Detailed DNS configuration and deliverability tuning are
+outside the scope of Edge Mailer.
 
 ## Reusing A Session
 
