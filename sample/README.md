@@ -4,6 +4,11 @@ This folder contains runnable SMTP samples for the two supported runtime lanes.
 Each runtime folder has one README with local smoke, deploy, and live smoke
 commands.
 
+`sample/` is deliberately different from `test/`: samples are user-facing,
+deployable starting points for real SMTP credentials, while `test/` is the
+internal regression suite. Samples live in the OSS repository for DX and
+copy/adapt workflows, but they are not shipped inside the npm or JSR package.
+
 | Runtime            | Folder                                           | Live deploy target              | Direct SMTP support                                | Current proof                                                      |
 | ------------------ | ------------------------------------------------ | ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------ |
 | Cloudflare Workers | [cloudflare-worker-smtp](cloudflare-worker-smtp) | `workers.dev` or a Worker route | `cloudflare:sockets` outbound TCP                  | Local Wrangler smoke and live `workers.dev` SMTP acceptance passed |

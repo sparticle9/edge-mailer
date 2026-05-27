@@ -1,0 +1,74 @@
+# Edge Mailer
+
+Edge Mailer is a serverless SMTP submission toolkit for Cloudflare Workers and
+Deno. It is for direct SMTP submission from runtimes with outbound TCP sockets,
+not a provider HTTP SDK wrapper.
+
+Use `edge-mailer/cloudflare` in Cloudflare Workers:
+
+```ts
+import { EdgeMailer } from 'edge-mailer/cloudflare'
+```
+
+Use `edge-mailer/deno` or `jsr:@sparticle9/edge-mailer/deno` in Deno:
+
+```ts
+import { DenoMailer } from 'edge-mailer/deno'
+```
+
+Core APIs:
+
+- `EdgeMailer.send(config, email)` and `DenoMailer.send(config, email)` send one
+  message and return a structured SMTP receipt.
+- `connect(config)` opens a reusable SMTP session.
+- `createPool(config)` creates a bounded SMTP connection pool.
+- `probe(config)` connects, EHLOs, reports capabilities, and closes without
+  sending mail.
+- `EmailOptions` supports text, HTML, custom headers, CC, BCC, reply-to,
+  attachments, inline CID attachments, DKIM, DSN overrides, iCalendar invites,
+  and typed outbound threading headers.
+- Receipts include attempt id, message id, thread headers, envelope,
+  accepted/rejected recipients, final SMTP response, response code, TLS mode,
+  size, duration, and `toJSON()`.
+- `SMTPError` includes stage, command, response code, enhanced status code,
+  reason, retry hint, next action, and `toJSON()`.
+
+Production defaults:
+
+- Use port `587` with `startTls: true` and `tlsPolicy: 'require-starttls'`, or
+  port `465` with `secure: true` and `tlsPolicy: 'require-tls'`.
+- Pass `signal` to config or send options to cancel request, queue, or agent
+  jobs.
+- Prefer provider-native REST APIs when they are clearly better for an identity.
+  Use Edge Mailer for SMTP infrastructure, SMTP/XOAUTH2 fallback, and observable
+  edge-compatible submission.
+- Do not put SMTP credentials in client apps or public logs.
+
+Non-goals:
+
+- No OAuth consent or refresh-token custody.
+- No provider HTTP SDK aggregation.
+- No inbound parsing, mailbox polling, webhooks, bounce normalization,
+  open/click tracking, or inbox-placement analytics.
+- No true streaming SMTP DATA yet; keep large assets linked unless real users
+  need large in-message attachments.
+
+Useful files:
+
+- `README.md`: package overview, runtime matrix, and roadmap.
+- `CLIENT-INTEGRATION.md`: API examples and production integration notes.
+- `DEVELOPMENT.md`: local checks, smokes, release flow, and reporting guidance.
+- `sample/cloudflare-worker-smtp`: ready-to-deploy Cloudflare Worker sample.
+- `sample/deno-smtp`: ready-to-run Deno sample.
+
+Release checks:
+
+```sh
+pnpm test -- --run
+pnpm run test:smtp-core
+pnpm run build
+pnpm run check:deno
+pnpm run test:deno
+npm pack --dry-run --json
+deno publish --dry-run --config jsr.json
+```

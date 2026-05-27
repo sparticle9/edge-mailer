@@ -1,5 +1,15 @@
 # edge-mailer
 
+## Unreleased
+
+- Add abortable connect/send/batch operations, explicit TLS policy controls,
+  no-send capability probing, and receipt TLS mode metadata.
+- Add provider profile helpers for Google Workspace, Microsoft 365, SES SMTP,
+  Yandex SMTP, and custom SMTP.
+- Upgrade the Cloudflare Worker sample with health, capability probe, dry-run,
+  and send routes.
+- Add `llms.txt` and a repo-local Edge Mailer agent skill artifact.
+
 ## 0.6.5
 
 - Add lightweight SMTP observation events, redacted transcript summaries, stable

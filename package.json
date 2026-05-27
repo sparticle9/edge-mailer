@@ -37,6 +37,8 @@
     "dist",
     "CLIENT-INTEGRATION.md",
     "CHANGELOG.md",
+    "llms.txt",
+    ".agents/skills/edge-mailer/SKILL.md",
     "LICENSE",
     "README.md"
   ],

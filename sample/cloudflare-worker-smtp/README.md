@@ -26,6 +26,7 @@ SMTP_USERNAME=sender@example.com
 SMTP_PASSWORD=secret
 TEST_RECIPIENT_EMAIL=recipient@example.net
 SMTP_AUTH_TYPE=plain,login
+SMTP_TLS_POLICY=require-starttls
 SAMPLE_SEND_TOKEN=generate-a-long-random-token
 ```
 
@@ -73,6 +74,17 @@ Expected email:
 
 The local smoke sends text, HTML, custom headers, and
 `edge-mailer-sample.txt` as a raw-byte attachment through a bounded pool.
+
+The Worker exposes:
+
+| Route           | Method | Purpose                                             |
+| --------------- | ------ | --------------------------------------------------- |
+| `/health`       | `GET`  | Configuration and protection status                 |
+| `/capabilities` | `GET`  | Authenticated SMTP capability probe without sending |
+| `/dry-run`      | `POST` | Authenticated MIME render without SMTP submission   |
+| `/send`         | `POST` | Authenticated SMTP send                             |
+
+`GET /` and `POST /` remain aliases for basic health and send compatibility.
 
 To request and capture SMTP DSN evidence during the local smoke:
 

@@ -7,12 +7,7 @@
     "./deno": "./src/deno.ts"
   },
   "compilerOptions": {
-    "lib": [
-      "deno.ns",
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ]
+    "lib": ["deno.ns", "dom", "dom.iterable", "esnext"]
   },
   "publish": {
     "include": [
@@ -20,6 +15,8 @@
       "README.md",
       "CLIENT-INTEGRATION.md",
       "CHANGELOG.md",
+      "llms.txt",
+      ".agents/skills/edge-mailer/SKILL.md",
       "LICENSE"
     ]
   }

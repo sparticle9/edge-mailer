@@ -1,4 +1,5 @@
 import {
+  Email,
   EdgeMailer,
   LogLevel,
   type AuthType,
@@ -27,6 +28,7 @@ type Env = {
   SMTP_POOL_MAX_MESSAGES_PER_CONNECTION?: string
   SMTP_POOL_IDLE_TIMEOUT_MS?: string
   SAMPLE_SEND_TOKEN?: string
+  SMTP_TLS_POLICY?: EdgeMailerOptions['tlsPolicy']
 }
 
 function authTypes(value: string | undefined): EdgeMailerOptions['authType'] {
@@ -86,6 +88,9 @@ function smtpConfig(env: Env): EdgeMailerOptions {
     port,
     secure: port === 465,
     startTls: port !== 465,
+    tlsPolicy:
+      env.SMTP_TLS_POLICY ||
+      (port === 465 ? 'require-tls' : 'require-starttls'),
     credentials: useXOAuth2
       ? {
           username,
@@ -105,13 +110,14 @@ function smtpConfig(env: Env): EdgeMailerOptions {
       idleTimeoutMs: Number(env.SMTP_POOL_IDLE_TIMEOUT_MS || 1_000),
     },
     logLevel: LogLevel.NONE,
+    signal: undefined,
   }
 }
 
 function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
   const username = env.SMTP_USERNAME || env.SMTP_USER
-  const from =
-    body.from || env.SMTP_FROM || { name: 'Edge Mailer', email: username! }
+  const from = body.from ||
+    env.SMTP_FROM || { name: 'Edge Mailer', email: username! }
   const to = body.to || defaultRecipient(env)
   if (!from || !to) {
     throw new Error('Missing SMTP_FROM or SMTP_TO/TEST_RECIPIENT_EMAIL')
@@ -162,22 +168,47 @@ function authorized(request: Request, env: Env) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === 'GET') {
+    const url = new URL(request.url)
+
+    if (
+      request.method === 'GET' &&
+      (url.pathname === '/' || url.pathname === '/health')
+    ) {
+      return health(env)
+    }
+
+    if (request.method === 'GET' && url.pathname === '/capabilities') {
+      if (!authorized(request, env)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const config = smtpConfig(env)
+      config.signal = request.signal
+      const capabilities = await EdgeMailer.probe(config)
+      return Response.json({ ok: true, capabilities })
+    }
+
+    if (request.method === 'POST' && url.pathname === '/dry-run') {
+      if (!authorized(request, env)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const body = (await request
+        .json()
+        .catch(() => ({}))) as Partial<EmailOptions>
+      const email = sampleEmail(env, body)
+      const message = await new Email(email).getMessageDataAsync()
       return Response.json({
         ok: true,
-        runtime: 'cloudflare-workers',
-        directSmtp: true,
-        pool: true,
-        configured: Boolean(
-          env.SMTP_HOST &&
-          (env.SMTP_USERNAME || env.SMTP_USER) &&
-          (env.SMTP_PASSWORD || env.SMTP_XOAUTH2_ACCESS_TOKEN),
-        ),
-        protected: Boolean(env.SAMPLE_SEND_TOKEN),
+        dryRun: true,
+        subject: email.subject,
+        size: new TextEncoder().encode(message).length,
+        message,
       })
     }
 
-    if (request.method !== 'POST') {
+    if (
+      request.method !== 'POST' ||
+      (url.pathname !== '/' && url.pathname !== '/send')
+    ) {
       return Response.json({ error: 'Method not allowed' }, { status: 405 })
     }
 
@@ -193,6 +224,7 @@ export default {
     const email = sampleEmail(env, body)
     const observationEvents: MailObservationEvent[] = []
     const config = smtpConfig(env)
+    config.signal = request.signal
     if (body.captureObservation) {
       config.observation = {
         mode: 'summary',
@@ -211,6 +243,7 @@ export default {
         messageId: receipt.messageId,
         attemptId: receipt.attemptId,
         durationMs: receipt.durationMs,
+        tlsMode: receipt.tlsMode,
         recipients: receipt.accepted,
         rejected: receipt.rejected,
         responseCode: receipt.responseCode,
@@ -223,3 +256,19 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>
+
+function health(env: Env) {
+  return Response.json({
+    ok: true,
+    runtime: 'cloudflare-workers',
+    directSmtp: true,
+    pool: true,
+    endpoints: ['/health', '/capabilities', '/dry-run', '/send'],
+    configured: Boolean(
+      env.SMTP_HOST &&
+      (env.SMTP_USERNAME || env.SMTP_USER) &&
+      (env.SMTP_PASSWORD || env.SMTP_XOAUTH2_ACCESS_TOKEN),
+    ),
+    protected: Boolean(env.SAMPLE_SEND_TOKEN),
+  })
+}
