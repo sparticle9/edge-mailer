@@ -51,6 +51,11 @@ export type Credentials = PasswordCredentials | XOAuth2Credentials
 /** Controls ordered batch behavior when one message fails. */
 export type BatchSendOptions = {
   continueOnError?: boolean
+  signal?: AbortSignal
+}
+/** Controls one SMTP send call. */
+export type SendOptions = {
+  signal?: AbortSignal
 }
 /** Recipient rejected by the SMTP server during the envelope phase. */
 export type SmtpRejectedRecipient = {
@@ -75,6 +80,7 @@ export type SmtpSendReceipt = {
   response: string
   responseCode?: number
   enhancedStatusCode?: string
+  tlsMode: SmtpTlsMode
   size: number
   durationMs: number
   toJSON(): SmtpSendReceiptJson
@@ -96,6 +102,7 @@ function smtpSendReceiptToJson(this: SmtpSendReceipt): SmtpSendReceiptJson {
     response: this.response,
     responseCode: this.responseCode,
     enhancedStatusCode: this.enhancedStatusCode,
+    tlsMode: this.tlsMode,
     size: this.size,
     durationMs: this.durationMs,
   }
@@ -103,8 +110,38 @@ function smtpSendReceiptToJson(this: SmtpSendReceipt): SmtpSendReceiptJson {
 
 /** SMTP PIPELINING behavior. */
 export type PipeliningMode = 'auto' | false
+/** Final TLS mode used by an SMTP session. */
+export type SmtpTlsMode = 'none' | 'implicit' | 'starttls'
+/** TLS policy for SMTP session initialization. */
+export type SmtpTlsPolicy =
+  | 'opportunistic'
+  | 'require-starttls'
+  | 'require-tls'
+  | 'no-starttls'
 /** SMTP message body encoding advertised in MAIL FROM. */
 export type SmtpBodyType = '7BIT' | '8BITMIME'
+/** Server capability probe returned without sending mail. */
+export type SmtpCapabilityProbe = {
+  host: string
+  port: number
+  runtime: string
+  tlsMode: SmtpTlsMode
+  auth: {
+    advertised: boolean
+    mechanisms: AuthType[]
+  }
+  extensions: {
+    startTls: boolean
+    dsn: boolean
+    pipelining: boolean
+    size: boolean
+    maxMessageSize?: number
+    eightBitMime: boolean
+    smtpUtf8: boolean
+    requireTls: boolean
+  }
+  capabilities: string[]
+}
 /** Protocol stage attached to structured SMTP errors. */
 export type SMTPStage =
   | 'connect'
@@ -411,6 +448,7 @@ export type EdgeMailerOptions = {
   port: number
   secure?: boolean
   startTls?: boolean
+  tlsPolicy?: SmtpTlsPolicy
   credentials?: Credentials
   authType?: AuthType | AuthType[]
   logLevel?: LogLevel
@@ -421,6 +459,7 @@ export type EdgeMailerOptions = {
   socketTimeoutMs?: number
   responseTimeoutMs?: number
   observation?: MailObservationOptions | undefined
+  signal?: AbortSignal
 }
 
 /** Connection-pool limits for repeated SMTP sends. */
@@ -447,6 +486,7 @@ export class SmtpMailer {
   private readonly port: number
   private readonly secure: boolean
   private readonly startTls: boolean
+  private readonly tlsPolicy: SmtpTlsPolicy
   private readonly authType: AuthType[]
   private readonly credentials?: Credentials
   private readonly pipelining: PipeliningMode
@@ -462,7 +502,9 @@ export class SmtpMailer {
   private readonly logger: Logger
   private readonly runtimeName: string
   private readonly observation?: MailObservationOptions
+  private readonly signal?: AbortSignal
   private sessionId?: string
+  private tlsMode: SmtpTlsMode = 'none'
 
   private readonly dsn: DsnOptions | undefined
   private readonly dkim: DkimConfig | undefined
@@ -502,6 +544,10 @@ export class SmtpMailer {
       this.authType = defaultAuthTypes(options.credentials)
     }
     this.startTls = options.startTls === undefined ? true : options.startTls
+    this.tlsPolicy = options.tlsPolicy || 'opportunistic'
+    if (this.tlsPolicy === 'no-starttls') {
+      this.startTls = false
+    }
     this.credentials = options.credentials
     this.pipelining = options.pipelining === false ? false : 'auto'
     this.dsn = options.dsn || {}
@@ -511,6 +557,8 @@ export class SmtpMailer {
     this.socketTimeoutMs = options.socketTimeoutMs || 60_000
     this.responseTimeoutMs = options.responseTimeoutMs || 30_000
     this.observation = options.observation
+    this.signal = options.signal
+    this.tlsMode = this.secure ? 'implicit' : 'none'
 
     this.logger = new Logger(
       options.logLevel,
@@ -519,9 +567,14 @@ export class SmtpMailer {
   }
 
   /** Sends one message over the active SMTP session. */
-  public send(options: EmailOptions): Promise<SmtpSendReceipt> {
+  public send(
+    options: EmailOptions,
+    sendOptions: SendOptions = {},
+  ): Promise<SmtpSendReceipt> {
     const email = new Email(options)
     email.sent.catch(() => undefined)
+    const signal = sendOptions.signal || this.signal
+    this.throwIfAborted(signal, 'send')
     let rejectQueued!: (reason?: unknown) => void
     let cancelled = false
     const task = new Promise<SmtpSendReceipt>((resolve, reject) => {
@@ -532,13 +585,18 @@ export class SmtpMailer {
       this.queuedSendRejects.add(rejectQueued)
       const run = this.sendChain.then(async () => {
         this.queuedSendRejects.delete(rejectQueued)
+        this.throwIfAborted(signal, 'send')
         if (cancelled) {
           throw this.closedSendError()
         }
         if (!this.active) {
           throw this.closedSendError()
         }
-        return await this.sendEmail(email)
+        return await this.withAbort(
+          this.sendEmail(email, signal),
+          signal,
+          'send',
+        )
       })
       run.then(resolve, reject)
     })
@@ -554,8 +612,9 @@ export class SmtpMailer {
   ): Promise<BatchSendResult> {
     const results: BatchSendResult = []
     for (const email of emails) {
+      this.throwIfAborted(options.signal || this.signal, 'send')
       try {
-        const receipt = await this.send(email)
+        const receipt = await this.send(email, { signal: options.signal })
         results.push({ status: 'fulfilled', value: receipt })
       } catch (reason) {
         if (!options.continueOnError) {
@@ -685,7 +744,10 @@ export class SmtpMailer {
     return Boolean(this.observation?.onEvent)
   }
 
-  protected async initializeSmtpSession() {
+  protected async initializeSmtpSession(
+    options: { authenticate?: boolean } = {},
+  ) {
+    this.throwIfAborted(this.signal, 'connect')
     const connectStartedAt = Date.now()
     try {
       await this.openSocket()
@@ -713,11 +775,43 @@ export class SmtpMailer {
       await this.ehlo()
     }
 
-    await this.auth()
+    this.enforceTlsPolicy()
+
+    if (options.authenticate !== false) {
+      await this.auth()
+    }
     this.active = true
   }
 
-  private async sendEmail(email: Email): Promise<SmtpSendReceipt> {
+  /** Returns the server capabilities observed during initialization. */
+  public capabilityProbe(): SmtpCapabilityProbe {
+    return {
+      host: this.host,
+      port: this.port,
+      runtime: this.runtimeName,
+      tlsMode: this.tlsMode,
+      auth: {
+        advertised: this.allowAuth,
+        mechanisms: [...this.authTypeSupported],
+      },
+      extensions: {
+        startTls: this.supportsStartTls,
+        dsn: this.supportsDSN,
+        pipelining: this.supportsPipelining,
+        size: this.supportsSize,
+        maxMessageSize: this.maxMessageSize,
+        eightBitMime: this.supports8BitMime,
+        smtpUtf8: this.supportsSmtpUtf8,
+        requireTls: this.supportsRequireTls,
+      },
+      capabilities: this.capabilityNames(),
+    }
+  }
+
+  private async sendEmail(
+    email: Email,
+    signal?: AbortSignal,
+  ): Promise<SmtpSendReceipt> {
     this.emailSending = email
     const attemptId = createObservationId('mail_attempt')
     const sendStartedAt = Date.now()
@@ -730,6 +824,7 @@ export class SmtpMailer {
     let transaction: SmtpTransaction = { accepted: [], rejected: [] }
     try {
       const composeStartedAt = Date.now()
+      this.throwIfAborted(signal, 'send')
       const prepared = await this.prepareEmail(email)
       this.emitStageObservation(
         'mail.compose.completed',
@@ -747,7 +842,9 @@ export class SmtpMailer {
         if (this.canPipeline()) {
           transaction = await this.envelopePipelined(prepared, transaction)
         } else {
+          this.throwIfAborted(signal, 'mail')
           await this.mail(prepared)
+          this.throwIfAborted(signal, 'rcpt')
           transaction = await this.rcpt(prepared, transaction)
         }
       } catch (error) {
@@ -781,8 +878,10 @@ export class SmtpMailer {
       let response: string
       try {
         if (!this.canPipeline()) {
+          this.throwIfAborted(signal, 'data')
           await this.data()
         }
+        this.throwIfAborted(signal, 'body')
         response = await this.body(prepared)
       } catch (error) {
         this.emitStageObservation(
@@ -907,16 +1006,20 @@ export class SmtpMailer {
     readPromise.catch(() => undefined)
 
     try {
-      return await Promise.race([
-        readPromise,
-        new Promise<string>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            timedOut = true
-            void this.abortConnection(error)
-            reject(error)
-          }, this.responseTimeoutMs)
-        }),
-      ])
+      return await this.withAbort(
+        Promise.race([
+          readPromise,
+          new Promise<string>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              timedOut = true
+              void this.abortConnection(error)
+              reject(error)
+            }, this.responseTimeoutMs)
+          }),
+        ]),
+        this.signal,
+        stage,
+      )
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId)
@@ -981,6 +1084,7 @@ export class SmtpMailer {
   }
 
   private async write(data: string, debugData = data) {
+    this.throwIfAborted(this.signal, 'send')
     if (this.logger.isEnabled(LogLevel.DEBUG)) {
       this.logger.debug('Write to socket:\n' + redactSmtpCommand(debugData))
     }
@@ -991,6 +1095,11 @@ export class SmtpMailer {
     this.logger.info(`Connecting to SMTP server`)
     const error = new SMTPError('Socket timeout!', { stage: 'connect' })
     const controller = new AbortController()
+    const removeAbortListener = this.pipeAbort(
+      this.signal,
+      controller,
+      'connect',
+    )
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     let timedOut = false
 
@@ -1016,6 +1125,7 @@ export class SmtpMailer {
       this.reader = socket.readable.getReader()
       this.writer = socket.writable.getWriter()
     } finally {
+      removeAbortListener()
       if (timeoutId) {
         clearTimeout(timeoutId)
       }
@@ -1034,15 +1144,19 @@ export class SmtpMailer {
     const error = new SMTPError('Socket timeout!', { stage: 'connect' })
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     try {
-      await Promise.race([
-        socket.opened,
-        new Promise<void>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            void this.abortConnection(error)
-            reject(error)
-          }, this.socketTimeoutMs)
-        }),
-      ])
+      await this.withAbort(
+        Promise.race([
+          socket.opened,
+          new Promise<void>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              void this.abortConnection(error)
+              reject(error)
+            }, this.socketTimeoutMs)
+          }),
+        ]),
+        this.signal,
+        'connect',
+      )
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId)
@@ -1178,6 +1292,7 @@ export class SmtpMailer {
         })
       }
       this.socket = await socket.startTls()
+      this.tlsMode = 'starttls'
       this.reader = this.socket.readable.getReader()
       this.writer = this.socket.writable.getWriter()
       this.resetCapabilities()
@@ -1354,6 +1469,33 @@ export class SmtpMailer {
     }
   }
 
+  private enforceTlsPolicy() {
+    if (
+      this.tlsPolicy === 'opportunistic' ||
+      this.tlsPolicy === 'no-starttls'
+    ) {
+      return
+    }
+    if (this.tlsPolicy === 'require-starttls' && this.tlsMode !== 'starttls') {
+      throw new SMTPError('STARTTLS is required but was not negotiated', {
+        stage: 'starttls',
+        command: 'STARTTLS',
+        reason: 'tls_failed',
+        retryHint: 'do_not_retry',
+        nextAction: 'check_starttls',
+      })
+    }
+    if (this.tlsPolicy === 'require-tls' && this.tlsMode === 'none') {
+      throw new SMTPError('TLS is required but was not negotiated', {
+        stage: 'starttls',
+        command: 'STARTTLS',
+        reason: 'tls_failed',
+        retryHint: 'do_not_retry',
+        nextAction: 'check_starttls',
+      })
+    }
+  }
+
   private async authWithPlain(credentials: PasswordCredentials) {
     const command = `AUTH PLAIN ${btoa(
       `\u0000${credentials.username}\u0000${credentials.password}`,
@@ -1490,13 +1632,29 @@ export class SmtpMailer {
   }
 
   private xoauth2AuthError(response: string): SMTPError {
+    const responseLower = response.toLowerCase()
+    const reason = responseLower.includes('expired')
+      ? 'auth_expired_token'
+      : responseLower.includes('scope') || responseLower.includes('permission')
+        ? 'auth_invalid_scope'
+        : responseLower.includes('disabled') ||
+            responseLower.includes('smtp auth') ||
+            responseLower.includes('5.7.139') ||
+            responseLower.includes('5.7.57')
+          ? 'auth_disabled'
+          : 'auth_failed'
     return new SMTPError(`Failed to xoauth2 authentication: ${response}`, {
       stage: 'auth',
       command: 'AUTH XOAUTH2',
       response,
-      reason: 'auth_failed',
+      reason,
       retryHint: 'do_not_retry',
-      nextAction: 'refresh_token',
+      nextAction:
+        reason === 'auth_expired_token'
+          ? 'refresh_token'
+          : reason === 'auth_invalid_scope' || reason === 'auth_disabled'
+            ? 'check_server_policy'
+            : 'refresh_token',
     })
   }
 
@@ -1645,6 +1803,7 @@ export class SmtpMailer {
       response,
       responseCode: this.responseCode(response),
       enhancedStatusCode: this.enhancedStatusCode(response),
+      tlsMode: this.tlsMode,
       size: prepared.size,
       durationMs,
       toJSON: smtpSendReceiptToJson,
@@ -1901,6 +2060,69 @@ export class SmtpMailer {
     return new SMTPError(this.closeError?.message || 'EdgeMailer is closed', {
       stage: 'send',
       cause: this.closeError,
+    })
+  }
+
+  private throwIfAborted(signal: AbortSignal | undefined, stage: SMTPStage) {
+    if (!signal?.aborted) {
+      return
+    }
+    throw this.abortError(signal.reason, stage)
+  }
+
+  private async withAbort<T>(
+    promise: Promise<T>,
+    signal: AbortSignal | undefined,
+    stage: SMTPStage,
+  ): Promise<T> {
+    if (!signal) {
+      return promise
+    }
+    this.throwIfAborted(signal, stage)
+    return await new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        const error = this.abortError(signal.reason, stage)
+        void this.abortConnection(error)
+        reject(error)
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      promise.then(
+        value => {
+          signal.removeEventListener('abort', onAbort)
+          resolve(value)
+        },
+        error => {
+          signal.removeEventListener('abort', onAbort)
+          reject(error)
+        },
+      )
+    })
+  }
+
+  private pipeAbort(
+    signal: AbortSignal | undefined,
+    controller: AbortController,
+    stage: SMTPStage,
+  ) {
+    if (!signal) {
+      return () => undefined
+    }
+    const onAbort = () =>
+      controller.abort(this.abortError(signal.reason, stage))
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) {
+      onAbort()
+    }
+    return () => signal.removeEventListener('abort', onAbort)
+  }
+
+  private abortError(reason: unknown, stage: SMTPStage) {
+    return new SMTPError('SMTP operation aborted', {
+      stage,
+      cause: reason,
+      reason: 'aborted',
+      retryHint: 'do_not_retry',
+      nextAction: 'none',
     })
   }
 

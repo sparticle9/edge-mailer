@@ -297,9 +297,72 @@ describe('EdgeMailer', () => {
         stage: 'ehlo',
       })
     })
+
+    it('rejects immediately when the connection signal is already aborted', async () => {
+      const controller = new AbortController()
+      controller.abort('cancelled by caller')
+
+      await expect(
+        EdgeMailer.connect({
+          host: 'smtp.example.com',
+          port: 587,
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({
+        name: 'SMTPError',
+        stage: 'connect',
+        reason: 'aborted',
+        retryHint: 'do_not_retry',
+        nextAction: 'none',
+      })
+      expect(connect).not.toHaveBeenCalled()
+    })
   })
 
   describe('server capabilities', () => {
+    it('probes capabilities without authenticating or sending mail', async () => {
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH PLAIN XOAUTH2\r\n250-SIZE 12345\r\n250-DSN\r\n250 PIPELINING\r\n',
+          ),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('221 Bye\r\n'),
+        })
+
+      const capabilities = await EdgeMailer.probe({
+        host: 'smtp.example.com',
+        port: 587,
+        startTls: false,
+        credentials: {
+          username: 'test@example.com',
+          password: 'password',
+        },
+      })
+
+      expect(capabilities).toMatchObject({
+        host: 'smtp.example.com',
+        port: 587,
+        runtime: 'EdgeMailer',
+        tlsMode: 'none',
+        auth: {
+          advertised: true,
+          mechanisms: ['plain', 'xoauth2'],
+        },
+        extensions: {
+          dsn: true,
+          pipelining: true,
+          size: true,
+          maxMessageSize: 12345,
+        },
+      })
+      expect(writtenLines()).toEqual(['EHLO 127.0.0.1\r\n', 'QUIT\r\n'])
+    })
+
     it('should parse server capabilities correctly', async () => {
       // Mock server response with various capabilities
       mockReader.read
@@ -364,6 +427,37 @@ describe('EdgeMailer', () => {
 
       expect(mailer).toBeInstanceOf(EdgeMailer)
       // Verify that STARTTLS was not attempted
+      expect(mockSocket.startTls).not.toHaveBeenCalled()
+    })
+
+    it('fails when STARTTLS is required but not advertised', async () => {
+      mockReader.read
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
+        })
+        .mockResolvedValueOnce({
+          value: new TextEncoder().encode(
+            '250-smtp.example.com\r\n250-AUTH PLAIN LOGIN\r\n250 HELP\r\n',
+          ),
+        })
+
+      await expect(
+        EdgeMailer.connect({
+          host: 'smtp.example.com',
+          port: 587,
+          tlsPolicy: 'require-starttls',
+          credentials: {
+            username: 'test@example.com',
+            password: 'password',
+          },
+          authType: ['plain'],
+        }),
+      ).rejects.toMatchObject({
+        name: 'SMTPError',
+        stage: 'starttls',
+        reason: 'tls_failed',
+        nextAction: 'check_starttls',
+      })
       expect(mockSocket.startTls).not.toHaveBeenCalled()
     })
   })

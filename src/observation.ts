@@ -29,14 +29,19 @@ export type MailObservationStatus =
 
 /** Compact failure reasons intended for retry policy and agent routing. */
 export type MailFailureReason =
+  | 'aborted'
   | 'connect_failed'
   | 'timeout'
   | 'tls_failed'
   | 'auth_failed'
+  | 'auth_expired_token'
+  | 'auth_invalid_scope'
+  | 'auth_disabled'
   | 'sender_rejected'
   | 'recipient_rejected'
   | 'data_rejected'
   | 'unsupported_extension'
+  | 'rate_limited'
   | 'server_rejected'
   | 'client_closed'
   | 'unknown'
@@ -83,6 +88,7 @@ export type MailObservationEvent = {
   reason?: MailFailureReason
   retryHint?: MailRetryHint
   nextAction?: MailNextAction
+  tlsMode?: 'none' | 'implicit' | 'starttls'
   messageSize?: number
   acceptedCount?: number
   rejectedCount?: number
@@ -184,6 +190,9 @@ function failureReason(
   if (message.includes('timeout')) {
     return 'timeout'
   }
+  if (message.includes('aborted') || message.includes('aborterror')) {
+    return 'aborted'
+  }
   if (
     message.includes('edgemailer is closed') ||
     message.includes('connection aborted') ||
@@ -198,7 +207,32 @@ function failureReason(
     return 'tls_failed'
   }
   if (stage === 'auth') {
+    if (
+      message.includes('expired') ||
+      message.includes('invalid_token') ||
+      message.includes('token expired')
+    ) {
+      return 'auth_expired_token'
+    }
+    if (
+      message.includes('scope') ||
+      message.includes('insufficient') ||
+      message.includes('invalid_scope')
+    ) {
+      return 'auth_invalid_scope'
+    }
+    if (
+      message.includes('disabled') ||
+      message.includes('smtp auth') ||
+      message.includes('5.7.139') ||
+      message.includes('5.7.57')
+    ) {
+      return 'auth_disabled'
+    }
     return 'auth_failed'
+  }
+  if (responseCode === 421 || responseCode === 451 || responseCode === 452) {
+    return 'rate_limited'
   }
   if (message.includes('8bitmime') || message.includes('smtputf8')) {
     return 'unsupported_extension'
@@ -231,11 +265,19 @@ function retryHint(
   if (responseCode && responseCode >= 500) {
     return 'do_not_retry'
   }
-  if (reason === 'timeout' || reason === 'connect_failed') {
+  if (
+    reason === 'timeout' ||
+    reason === 'connect_failed' ||
+    reason === 'rate_limited'
+  ) {
     return 'retry'
   }
   if (
+    reason === 'aborted' ||
     reason === 'auth_failed' ||
+    reason === 'auth_expired_token' ||
+    reason === 'auth_invalid_scope' ||
+    reason === 'auth_disabled' ||
     reason === 'unsupported_extension' ||
     reason === 'client_closed'
   ) {
@@ -251,14 +293,24 @@ function nextAction(
   if (responseCode === 552) {
     return 'reduce_message_size'
   }
-  if (reason === 'timeout' || reason === 'connect_failed') {
+  if (
+    reason === 'timeout' ||
+    reason === 'connect_failed' ||
+    reason === 'rate_limited'
+  ) {
     return 'retry'
   }
   if (reason === 'tls_failed') {
     return 'check_starttls'
   }
+  if (reason === 'auth_expired_token') {
+    return 'refresh_token'
+  }
   if (reason === 'auth_failed') {
     return 'check_credentials'
+  }
+  if (reason === 'auth_invalid_scope' || reason === 'auth_disabled') {
+    return 'check_server_policy'
   }
   if (reason === 'sender_rejected') {
     return 'check_sender'
@@ -272,7 +324,7 @@ function nextAction(
   if (reason === 'unsupported_extension') {
     return 'check_server_policy'
   }
-  if (reason === 'client_closed') {
+  if (reason === 'aborted' || reason === 'client_closed') {
     return 'none'
   }
   if (reason === 'server_rejected' && responseCode && responseCode < 500) {

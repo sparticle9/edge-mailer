@@ -4,6 +4,8 @@ import type {
   BatchSendOptions,
   BatchSendResult,
   EdgeMailerOptions,
+  SendOptions,
+  SmtpCapabilityProbe,
   SmtpSendReceipt,
 } from '../smtp/mailer.ts'
 import type { EmailOptions } from '../email.ts'
@@ -24,7 +26,11 @@ export type DenoSocketRuntime = {
     transport?: 'tcp'
     signal?: AbortSignal
   }): Promise<DenoConn>
-  connectTls(options: { hostname: string; port: number }): Promise<DenoConn>
+  connectTls(options: {
+    hostname: string
+    port: number
+    signal?: AbortSignal
+  }): Promise<DenoConn>
   startTls(
     conn: DenoConn,
     options?: {
@@ -77,6 +83,7 @@ export function createDenoSocketConnector(
           await deno.connectTls({
             hostname: options.hostname,
             port: options.port,
+            signal: options.signal,
           }),
           deno,
           options.hostname,
@@ -119,14 +126,26 @@ export class DenoMailer extends SmtpMailer {
     }
   }
 
+  /** Connects, probes SMTP capabilities, and closes without sending mail. */
+  static async probe(options: EdgeMailerOptions): Promise<SmtpCapabilityProbe> {
+    const mailer = new DenoMailer(options)
+    try {
+      await mailer.initializeSmtpSession({ authenticate: false })
+      return mailer.capabilityProbe()
+    } finally {
+      await mailer.close()
+    }
+  }
+
   /** Sends one message and closes the SMTP session afterward. */
   static async send(
     options: EdgeMailerOptions,
     email: EmailOptions,
+    sendOptions: SendOptions = {},
   ): Promise<SmtpSendReceipt> {
     const mailer = await DenoMailer.connect(options)
     try {
-      return await mailer.send(email)
+      return await mailer.send(email, sendOptions)
     } finally {
       await mailer.close()
     }

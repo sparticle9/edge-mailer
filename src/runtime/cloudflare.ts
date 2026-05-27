@@ -5,6 +5,8 @@ import type {
   BatchSendOptions,
   BatchSendResult,
   EdgeMailerOptions,
+  SendOptions,
+  SmtpCapabilityProbe,
   SmtpSendReceipt,
 } from '../smtp/mailer.ts'
 import type { EmailOptions } from '../email.ts'
@@ -54,14 +56,26 @@ export class EdgeMailer extends SmtpMailer {
     }
   }
 
+  /** Connects, probes SMTP capabilities, and closes without sending mail. */
+  static async probe(options: EdgeMailerOptions): Promise<SmtpCapabilityProbe> {
+    const mailer = new EdgeMailer(options)
+    try {
+      await mailer.initializeSmtpSession({ authenticate: false })
+      return mailer.capabilityProbe()
+    } finally {
+      await mailer.close()
+    }
+  }
+
   /** Sends one message and closes the SMTP session afterward. */
   static async send(
     options: EdgeMailerOptions,
     email: EmailOptions,
+    sendOptions: SendOptions = {},
   ): Promise<SmtpSendReceipt> {
     const mailer = await EdgeMailer.connect(options)
     try {
-      return await mailer.send(email)
+      return await mailer.send(email, sendOptions)
     } finally {
       await mailer.close()
     }

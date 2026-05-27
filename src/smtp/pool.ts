@@ -2,6 +2,7 @@ import type {
   BatchSendOptions,
   BatchSendResult,
   EdgeMailerOptions,
+  SendOptions,
   SmtpPoolOptions,
   SmtpSendReceipt,
 } from './mailer.ts'
@@ -61,10 +62,13 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
   }
 
   /** Sends one message through an acquired SMTP session. */
-  async send(email: Parameters<TMailer['send']>[0]): Promise<SmtpSendReceipt> {
+  async send(
+    email: Parameters<TMailer['send']>[0],
+    options: SendOptions = {},
+  ): Promise<SmtpSendReceipt> {
     const client = await this.acquire()
     try {
-      const receipt = await client.mailer.send(email)
+      const receipt = await client.mailer.send(email, options)
       client.messages++
       await this.release(client)
       return receipt
@@ -83,7 +87,10 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     const results: BatchSendResult = []
     for (const email of emails) {
       try {
-        results.push({ status: 'fulfilled', value: await this.send(email) })
+        results.push({
+          status: 'fulfilled',
+          value: await this.send(email, { signal: options.signal }),
+        })
       } catch (reason) {
         if (!options.continueOnError) {
           throw reason

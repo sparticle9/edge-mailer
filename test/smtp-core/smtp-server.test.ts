@@ -8,6 +8,7 @@ import {
   SMTPError,
   SmtpMailer,
   type EdgeMailerOptions,
+  type SmtpCapabilityProbe,
 } from '../../src/smtp/mailer.ts'
 import type { EmailOptions } from '../../src/email'
 import type { MailObservationEvent } from '../../src/observation'
@@ -122,11 +123,21 @@ class FunctionalMailer extends SmtpMailer {
   static async sendBatch(
     options: EdgeMailerOptions,
     emails: EmailOptions[],
-    batchOptions: { continueOnError?: boolean } = {},
+    batchOptions: { continueOnError?: boolean; signal?: AbortSignal } = {},
   ) {
     const mailer = await FunctionalMailer.connect(options)
     try {
       return await mailer.sendMany(emails, batchOptions)
+    } finally {
+      await mailer.close()
+    }
+  }
+
+  static async probe(options: EdgeMailerOptions): Promise<SmtpCapabilityProbe> {
+    const mailer = new FunctionalMailer(options)
+    try {
+      await mailer.initializeSmtpSession({ authenticate: false })
+      return mailer.capabilityProbe()
     } finally {
       await mailer.close()
     }
@@ -408,6 +419,55 @@ describe('SmtpMailer functional SMTP server integration', () => {
       { method: 'LOGIN', username: USERNAME },
     ])
     expect(server.state.messages[0].secure).toBe(true)
+  })
+
+  it('probes capabilities without authenticating or sending mail', async () => {
+    const server = await startServer({
+      authMethods: ['PLAIN', 'XOAUTH2'],
+      disabledCommands: ['STARTTLS'],
+      size: 65536,
+    })
+
+    const probe = await FunctionalMailer.probe({
+      ...baseConfig(server.port),
+      startTls: false,
+    })
+
+    expect(probe).toMatchObject({
+      runtime: 'FunctionalMailer',
+      tlsMode: 'none',
+      auth: {
+        advertised: true,
+        mechanisms: expect.arrayContaining(['plain', 'xoauth2']),
+      },
+      extensions: {
+        size: true,
+        maxMessageSize: 65536,
+      },
+    })
+    expect(server.state.auths).toEqual([])
+    expect(server.state.messages).toEqual([])
+  })
+
+  it('fails initialization when STARTTLS is required but unavailable', async () => {
+    const server = await startServer({
+      disabledCommands: ['STARTTLS'],
+      allowInsecureAuth: true,
+      authMethods: ['PLAIN'],
+    })
+
+    await expect(
+      FunctionalMailer.connect({
+        ...baseConfig(server.port),
+        tlsPolicy: 'require-starttls',
+      }),
+    ).rejects.toMatchObject({
+      name: 'SMTPError',
+      stage: 'starttls',
+      reason: 'tls_failed',
+      retryHint: 'do_not_retry',
+    })
+    expect(server.state.auths).toEqual([])
   })
 
   it('sends REQUIRETLS over implicit TLS when advertised', async () => {
