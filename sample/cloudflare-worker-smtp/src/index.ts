@@ -110,7 +110,8 @@ function smtpConfig(env: Env): EdgeMailerOptions {
 
 function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
   const username = env.SMTP_USERNAME || env.SMTP_USER
-  const from = body.from || env.SMTP_FROM || username
+  const from =
+    body.from || env.SMTP_FROM || { name: 'Edge Mailer', email: username! }
   const to = body.to || defaultRecipient(env)
   if (!from || !to) {
     throw new Error('Missing SMTP_FROM or SMTP_TO/TEST_RECIPIENT_EMAIL')
@@ -129,6 +130,7 @@ function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
       `<p>Hello from the edge-mailer Cloudflare Worker sample.</p><p>Marker: ${marker}</p>`,
     headers: {
       'X-Edge-Mailer-Sample': marker,
+      'X-Mailer': 'Edge Mailer',
       ...body.headers,
     },
     envelope: body.envelope,
