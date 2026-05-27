@@ -17,19 +17,25 @@ Choose one runtime:
   want a small hosted mail sender on `workers.dev`.
 - Use Deno when you want a plain Deno server locally or a Deno Deploy v2 app.
 
-Common SMTP environment names:
+Common SMTP environment names live in the root `env.example`.
+Copy the section you need into a local env file and fill in values.
+
+The core SMTP smoke/sample section covers:
 
 ```env
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USERNAME=sender@example.com
 SMTP_PASSWORD=secret
+SMTP_FROM=sender@example.com
+SMTP_TO=recipient@example.net
 TEST_RECIPIENT_EMAIL=recipient@example.net
 SMTP_AUTH_TYPE=plain,login
 ```
 
-For token-only XOAUTH2, set `SMTP_AUTH_TYPE=xoauth2` and
-`SMTP_XOAUTH2_ACCESS_TOKEN` instead of `SMTP_PASSWORD`.
+For token-only XOAUTH2, use the XOAUTH2 section from `env.example` and set
+`SMTP_AUTH_TYPE=xoauth2` with `SMTP_XOAUTH2_ACCESS_TOKEN` instead of
+`SMTP_PASSWORD`.
 
 Recommended hosted sample protection:
 

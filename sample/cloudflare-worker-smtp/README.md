@@ -6,6 +6,9 @@ implicit TLS.
 
 ## Env
 
+Start from the root `env.example` and copy the sections you need into a local
+ignored env file.
+
 Repo root `.env` for Wrangler auth:
 
 ```env

@@ -6,6 +6,9 @@ deployed to Deno Deploy v2.
 
 ## Env
 
+Start from the root `env.example` and copy the sections you need into a local
+ignored env file.
+
 Repo root `.env` for Deploy auth:
 
 ```env
