@@ -94,6 +94,11 @@ envelope command.
 For XOAUTH2, provide a valid OAuth access token. Edge Mailer formats and submits
 the SMTP SASL payload; it does not refresh tokens or run provider consent flows.
 
+Graph API is not a supported transport in the package surface yet. A repository
+showcase script under `scripts/graph-send.mjs` demonstrates one possible Graph
+send path with env-driven inputs and request-id capture, but it is intentionally
+kept outside the exported API until the design is ready.
+
 ```ts
 const receipt = await EdgeMailer.send(
   {

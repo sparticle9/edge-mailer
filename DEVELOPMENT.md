@@ -159,6 +159,19 @@ Run the SMTP core tests against a real local SMTP server:
 pnpm run test:smtp-core
 ```
 
+A repository-only Graph API showcase script also exists for reference:
+
+```sh
+GRAPH_CLIENT_ID=... \
+GRAPH_USER_EMAIL=... \
+GRAPH_REFRESH_TOKEN=... \
+GRAPH_TO_EMAIL=... \
+node scripts/graph-send.mjs
+```
+
+It is intentionally not part of the supported package surface yet; treat it as a
+showcase for later integration.
+
 Run Deno checks:
 
 ```sh
