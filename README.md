@@ -56,7 +56,9 @@ Not supported yet:
 See [CLIENT-INTEGRATION.md](CLIENT-INTEGRATION.md) for client-side runtime
 imports, SMTP options, envelope/DSN usage, and real-server functional
 verification. See [DEVELOPMENT.md](DEVELOPMENT.md) for local checks, smoke
-testing, runtime samples, and reporting guidance.
+testing, runtime samples, and reporting guidance. A sectioned `env.example` at
+the repo root covers the common SMTP, XOAUTH2, DSN, sample, and Graph showcase
+scenarios.
 
 A Graph API send showcase lives under `scripts/graph-send.mjs`. It is kept as a
 repository example only; it is not wired into the supported package surface yet.

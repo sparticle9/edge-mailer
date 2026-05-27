@@ -280,7 +280,9 @@ external credentials.
 ## SMTP Smoke
 
 Put real smoke credentials in local `.env`; `.envrc` loads them through direnv.
-Do not commit real credentials.
+Do not commit real credentials. For a commented starter, copy the root
+`env.example` and fill only the sections you need for the scenario you are
+running.
 
 ```env
 SMTP_HOST=smtp.example.com
