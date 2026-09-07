@@ -1,5 +1,19 @@
 # edge-mailer
 
+## 0.8.5
+
+### Runnable application starters
+
+- Add a Cloudflare contact form with browser UI, fixed sender/recipient, validated
+  Reply-To, Turnstile hostname/action verification, honeypot, and atomic D1 limits.
+- Add a D1 outbox with authenticated enqueue/status APIs, idempotency conflict
+  checks, atomic claims, attempt history, acceptance persistence, bounded retries,
+  dead-letter states, and conservative handling of uncertain sends and crashes.
+- Document clean-clone setup, secret delivery, deployment, operator reconciliation,
+  retention and business-transaction boundaries. Starters remain repository-only.
+- Validate 26 starter scenarios plus a real TCP lost-DATA-acknowledgement test;
+  include starter type/bundle checks in the release gate. No core API changes.
+
 ## 0.8.0
 
 - Require TLS by default when authenticating; reject missing AUTH rather than

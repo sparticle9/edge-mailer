@@ -29,6 +29,12 @@ Good first projects are contact-form notifications, queued account emails,
 small scheduled reports, and booking invitations. See [USE-CASES.md](USE-CASES.md)
 for recipes, retry decisions, and the application responsibilities for each.
 
+Start with the runnable [contact form](https://github.com/sparticle9/edge-mailer/tree/main/sample/contact-form)
+or [durable D1 outbox](https://github.com/sparticle9/edge-mailer/tree/main/sample/durable-outbox).
+They include setup, abuse checks or retry/reconciliation policy, and
+[0.8.5 scenario verdicts](https://github.com/sparticle9/edge-mailer/blob/main/sample/VERDICTS-0.8.5.md).
+The starters live in the repository; npm and JSR contain the SMTP library and docs.
+
 ## First send
 
 Call this from your server-side application after authorizing the action.
@@ -238,8 +244,7 @@ Runnable samples and deploy quickstarts live in [sample](https://github.com/spar
 ## Next priorities
 
 The release is intended for small transactional workflows. The next adoption
-work is a complete contact-form starter, a durable queue/outbox example, fresh
-provider acceptance results for both runtimes, independent DKIM verification,
+work is fresh provider acceptance results for both runtimes, independent DKIM verification,
 calendar client testing, and attachment memory measurements. These are tracked
 with user stories and success criteria in [USE-CASES.md](USE-CASES.md).
 

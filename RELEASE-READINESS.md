@@ -75,8 +75,8 @@ independent penetration test or a proof that all defects have been found.
 
 | Priority                                   | User story / remaining risk                                              | Concrete acceptance criterion                                                                                                                                                                                                                        |
 | ------------------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Next                                       | A new user ships a safe contact form without becoming an open relay      | Runnable starter with fixed recipient/sender, validated Reply-To, rate limit/abuse checks, and documented setup from a clean clone                                                                                                                   |
-| Next                                       | A queued notification survives retries without silently duplicating mail | Durable outbox example, stable app id, acceptance persistence, bounded retries, dead-letter path, and an induced lost-DATA-reply scenario                                                                                                            |
+| Implemented in 0.8.5                       | A new user ships a safe contact form without becoming an open relay      | Runnable starter with fixed recipient/sender, validated Reply-To, rate limit/abuse checks, and documented setup from a clean clone                                                                                                                   |
+| Implemented in 0.8.5                       | A queued notification survives retries without silently duplicating mail | Durable outbox example, stable app id, acceptance persistence, bounded retries, dead-letter path, and an induced lost-DATA-reply scenario                                                                                                            |
 | Next                                       | A team trusts the provider/runtime support matrix                        | Dated successful acceptance results for at least two providers on both runtimes, including TLS mode, auth mechanism, package version, and limitations; separate mailbox evidence from SMTP acceptance                                                |
 | Before heavy concurrency                   | Cancellation and resource deadlines cover every waiting state            | Add cancellable pool acquisition and bounded queue size; test stalled socket writes/TLS handshakes, slow token callbacks, late connects, and cancellation at each stage. Existing connect/read timers do not establish coverage of all these states  |
 | Before large payloads                      | A report sender can choose safe attachment limits                        | Measure peak memory and CPU for representative payload sizes in both runtimes; enforce application limits before composing MIME. Composition currently buffers the entire message                                                                    |
@@ -94,3 +94,11 @@ application/service concerns, and would weaken the current small-library scope.
 - [TLS for email submission, RFC 8314](https://www.rfc-editor.org/rfc/rfc8314.html)
 - [iCalendar content lines and UTF-8 folding, RFC 5545](https://www.rfc-editor.org/rfc/rfc5545)
 - [Cloudflare socket restrictions](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/)
+
+## 0.8.5 starter follow-up
+
+The contact-form and durable outbox backlog items now have runnable Worker/D1
+implementations, clean-clone guides, migrations, generated environment types,
+and automated acceptance scenarios. See [0.8.5 verdicts](sample/VERDICTS-0.8.5.md).
+The prior 0.8.0 audit above remains historical; this follow-up does not claim a
+live deployment, fresh provider qualification, or exactly-once SMTP delivery.

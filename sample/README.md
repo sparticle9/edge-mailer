@@ -1,6 +1,7 @@
 # Edge Mailer Samples
 
 This folder contains runnable SMTP samples for the two supported runtime lanes.
+It also includes application starters for Cloudflare Workers.
 Each runtime folder has one README with local smoke, deploy, and live smoke
 commands.
 
@@ -59,6 +60,18 @@ DKIM_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
 Set these only when Edge Mailer should sign before SMTP delivery. If your SMTP
 provider manages DKIM, it keeps the private key and gives you only the DNS TXT
 public key (`p=...`); leave `DKIM_PRIVATE_KEY` unset.
+
+## Application starters (0.8.5)
+
+- [Contact form](contact-form): browser UI, fixed recipient/sender, validated
+  Reply-To, Turnstile, HMAC IP keys, and durable submission limits.
+- [Durable outbox](durable-outbox): authenticated enqueue/status, D1 work queue,
+  atomic claims, acceptance receipts, retry budget, and reconciliation runbook.
+- [Scenario verdicts](VERDICTS-0.8.5.md): reproducible success/failure evidence and
+  the limits of the validation.
+
+Run `pnpm run test:starters` and `pnpm run check:starters` from the repository root.
+These checks use no real SMTP credentials and send no external email.
 
 ## Runtime Guides
 

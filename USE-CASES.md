@@ -10,8 +10,8 @@ handle delivery outcomes.
 
 | User story                                                                 | What you can use today                                                  | Application work still needed                                              |
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| A small business receives contact-form submissions in its existing mailbox | Text/HTML, fixed recipient, visitor Reply-To, one-shot send             | Form validation, rate limiting, anti-abuse checks, HTML escaping           |
-| A SaaS sends receipts or account notifications from a queue                | Reusable sessions, batches, stable Message-ID, typed errors             | Durable outbox, deduplication, retry budget, dead-letter handling          |
+| A small business receives contact-form submissions in its existing mailbox | Runnable form, fixed routing, Reply-To, Turnstile, D1 limits            | Deploy/configure the starter, choose traffic/privacy policy                |
+| A SaaS sends receipts or account notifications from a queue                | Runnable D1 outbox, idempotency, attempt history, bounded retries       | Business transaction integration, quotas, operator reconciliation          |
 | A booking app sends meeting invitations and cancellations                  | UTF-8 ICS, attendees, stable UID and sequence, REQUEST/CANCEL           | Persist event identity, timezone conversion, client rendering verification |
 | A Deno cron job emails a small report or invoice                           | Raw-byte/Blob attachments, MIME, provider-managed or local DKIM         | Scheduler, attachment size policy, delivery follow-up                      |
 | An administrator connects an existing SMTP provider                        | No-send capability probe, provider profiles, token callback for XOAUTH2 | OAuth consent/refresh, credentials storage, provider sending policy        |
@@ -19,7 +19,11 @@ handle delivery outcomes.
 Use the [Worker sample](https://github.com/sparticle9/edge-mailer/tree/main/sample/cloudflare-worker-smtp)
 or [Deno sample](https://github.com/sparticle9/edge-mailer/tree/main/sample/deno-smtp)
 for the first send. They expose server-to-server endpoints protected by a token;
-they are not ready-made public contact forms.
+they are SMTP connectivity samples. For a complete browser flow, use the
+[contact form starter](https://github.com/sparticle9/edge-mailer/tree/main/sample/contact-form).
+For durable background notifications, use the
+[outbox starter](https://github.com/sparticle9/edge-mailer/tree/main/sample/durable-outbox),
+including its retry and reconciliation runbook.
 
 ## Contact form: fixed sender and destination
 
@@ -119,8 +123,8 @@ supported runtime targets.
 
 ## Help shape the next release
 
-The most valuable follow-ups are a complete contact-form starter, a durable
-queue/outbox example with failure recovery, dated provider acceptance results
+The contact-form and durable outbox starters are available with automated failure
+recovery scenarios. The most valuable follow-ups are dated provider acceptance results
 for both runtimes, independent DKIM verification, real mail-client invite
 screenshots, and attachment memory measurements. Report the workflow you need
 and a concrete success criterion in a
