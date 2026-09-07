@@ -43,7 +43,8 @@ function wrapNodeSocket(
     readable: Readable.toWeb(socket) as ReadableStream<Uint8Array>,
     writable: Writable.toWeb(socket) as WritableStream<Uint8Array>,
     opened,
-    closed: once(socket, 'close').then(() => undefined),
+    // Stream reads/writes report transport errors; this promise tracks closure only.
+    closed: new Promise<void>(resolve => socket.once('close', () => resolve())),
     close() {
       socket.destroy()
     },
