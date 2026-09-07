@@ -8,6 +8,7 @@ import {
   type EmailOptions,
   type MailObservationEvent,
 } from '../../../src/cloudflare'
+import { isSampleAuthorized, readSampleBody } from '../../http.ts'
 
 type Env = {
   SMTP_HOST?: string
@@ -155,15 +156,7 @@ function sampleEmail(env: Env, body: Partial<EmailOptions> = {}): EmailOptions {
 }
 
 function authorized(request: Request, env: Env) {
-  if (!env.SAMPLE_SEND_TOKEN) {
-    return true
-  }
-  const authorization = request.headers.get('authorization')
-  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
-  const headerToken = request.headers.get('x-sample-send-token')
-  return (
-    bearer === env.SAMPLE_SEND_TOKEN || headerToken === env.SAMPLE_SEND_TOKEN
-  )
+  return isSampleAuthorized(request, env.SAMPLE_SEND_TOKEN)
 }
 
 export default {
@@ -191,9 +184,15 @@ export default {
       if (!authorized(request, env)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 })
       }
-      const body = (await request
-        .json()
-        .catch(() => ({}))) as Partial<EmailOptions>
+      let body: Partial<EmailOptions>
+      try {
+        body = await readSampleBody(request)
+      } catch {
+        return Response.json(
+          { error: 'Expected a JSON object of at most 1 MiB' },
+          { status: 400 },
+        )
+      }
       const email = sampleEmail(env, body)
       const message = await new Email(email).getMessageDataAsync()
       return Response.json({
@@ -216,10 +215,16 @@ export default {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = (await request
-      .json()
-      .catch(() => ({}))) as Partial<EmailOptions> & {
+    let body: Partial<EmailOptions> & {
       captureObservation?: boolean
+    }
+    try {
+      body = await readSampleBody(request)
+    } catch {
+      return Response.json(
+        { error: 'Expected a JSON object of at most 1 MiB' },
+        { status: 400 },
+      )
     }
     const email = sampleEmail(env, body)
     const observationEvents: MailObservationEvent[] = []

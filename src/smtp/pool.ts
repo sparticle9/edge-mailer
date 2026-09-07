@@ -52,6 +52,23 @@ export class SmtpConnectionPool<TMailer extends SmtpMailer> {
     private readonly runtimeName = 'SmtpConnectionPool',
   ) {
     const poolOptions = normalizePoolOptions(options.pool)
+    for (const limit of [
+      poolOptions.maxConnections,
+      poolOptions.maxMessagesPerConnection,
+    ]) {
+      if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
+        throw new Error('SMTP pool limits must be positive safe integers')
+      }
+    }
+    if (
+      poolOptions.idleTimeoutMs !== undefined &&
+      (!Number.isFinite(poolOptions.idleTimeoutMs) ||
+        poolOptions.idleTimeoutMs < 0)
+    ) {
+      throw new Error(
+        'SMTP pool idle timeout must be a non-negative finite number',
+      )
+    }
     this.maxConnections = Math.max(1, poolOptions.maxConnections ?? 1)
     this.maxMessagesPerConnection = Math.max(
       1,

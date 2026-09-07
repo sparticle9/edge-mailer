@@ -14,6 +14,10 @@ deno.jsonc
 .env.*
 !.env.example
 .direnv/
+.dev.vars
+.dev.vars.*
+.references/
+graph_send_result-*.json
 
 # Logs
 logs/

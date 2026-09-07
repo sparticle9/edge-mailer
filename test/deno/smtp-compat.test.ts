@@ -188,6 +188,7 @@ function baseConfig(port: number): EdgeMailerOptions {
     port,
     secure: false,
     startTls: false,
+    tlsPolicy: 'opportunistic', // Explicit plaintext local test server.
     credentials: {
       username: USERNAME,
       password: PASSWORD,

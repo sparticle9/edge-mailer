@@ -21,6 +21,7 @@ import {
   type MailRetryHint,
 } from '../observation.ts'
 import type { EdgeSocket, EdgeSocketConnector } from '../runtime/socket.ts'
+import { assertHeaderValue, assertMailbox } from '../validation.ts'
 
 /** SMTP authentication mechanisms supported by the shared SMTP client. */
 export type AuthType = 'plain' | 'login' | 'cram-md5' | 'xoauth2'
@@ -29,8 +30,7 @@ const DEFAULT_XOAUTH2_AUTH_TYPES: AuthType[] = ['xoauth2']
 
 /** Lazily or eagerly provided OAuth access token used for SMTP XOAUTH2. */
 export type XOAuth2AccessTokenProvider =
-  | string
-  | (() => string | Promise<string>)
+  string | (() => string | Promise<string>)
 
 /** Username and password used for SMTP password AUTH mechanisms. */
 export type PasswordCredentials = {
@@ -114,10 +114,7 @@ export type PipeliningMode = 'auto' | false
 export type SmtpTlsMode = 'none' | 'implicit' | 'starttls'
 /** TLS policy for SMTP session initialization. */
 export type SmtpTlsPolicy =
-  | 'opportunistic'
-  | 'require-starttls'
-  | 'require-tls'
-  | 'no-starttls'
+  'opportunistic' | 'require-starttls' | 'require-tls' | 'no-starttls'
 /** SMTP message body encoding advertised in MAIL FROM. */
 export type SmtpBodyType = '7BIT' | '8BITMIME'
 /** Server capability probe returned without sending mail. */
@@ -532,6 +529,37 @@ export class SmtpMailer {
     private readonly connector: EdgeSocketConnector,
     runtimeName = 'SmtpMailer',
   ) {
+    assertHeaderValue(options.host, 'SMTP host')
+    if (
+      !options.host ||
+      !Number.isInteger(options.port) ||
+      options.port < 1 ||
+      options.port > 65535
+    ) {
+      throw new Error('SMTP host and a valid port are required')
+    }
+    if (
+      options.tlsPolicy !== undefined &&
+      ![
+        'opportunistic',
+        'require-starttls',
+        'require-tls',
+        'no-starttls',
+      ].includes(options.tlsPolicy)
+    ) {
+      throw new Error('Invalid TLS policy')
+    }
+    for (const timeout of [
+      options.socketTimeoutMs,
+      options.responseTimeoutMs,
+    ]) {
+      if (
+        timeout !== undefined &&
+        (!Number.isFinite(timeout) || timeout <= 0)
+      ) {
+        throw new Error('SMTP timeouts must be positive finite numbers')
+      }
+    }
     this.runtimeName = runtimeName
     this.port = options.port
     this.host = options.host
@@ -544,7 +572,9 @@ export class SmtpMailer {
       this.authType = defaultAuthTypes(options.credentials)
     }
     this.startTls = options.startTls === undefined ? true : options.startTls
-    this.tlsPolicy = options.tlsPolicy || 'opportunistic'
+    this.tlsPolicy =
+      options.tlsPolicy ||
+      (options.credentials ? 'require-tls' : 'opportunistic')
     if (this.tlsPolicy === 'no-starttls') {
       this.startTls = false
     }
@@ -632,7 +662,10 @@ export class SmtpMailer {
       error || new SMTPError('EdgeMailer is shutting down', { stage: 'quit' })
     this.active = false
     this.closeError = closeError
-    this.logger.info('EdgeMailer is closed', error?.message || '')
+    this.logger.info(
+      'EdgeMailer is closed',
+      error ? redactSmtpResponse(error.message) : '',
+    )
     for (const reject of this.queuedSendRejects) {
       reject(this.closedSendError())
     }
@@ -877,10 +910,8 @@ export class SmtpMailer {
       const dataStartedAt = Date.now()
       let response: string
       try {
-        if (!this.canPipeline()) {
-          this.throwIfAborted(signal, 'data')
-          await this.data()
-        }
+        this.throwIfAborted(signal, 'data')
+        await this.data()
         this.throwIfAborted(signal, 'body')
         response = await this.body(prepared)
       } catch (error) {
@@ -940,7 +971,9 @@ export class SmtpMailer {
               stage: 'send',
               cause: error,
             })
-      this.logger.error('Failed to send email: ' + sendError.message)
+      this.logger.error(
+        'Failed to send email: ' + redactSmtpResponse(sendError.message),
+      )
       email.setSentError(sendError)
       if (this.active) {
         try {
@@ -985,7 +1018,7 @@ export class SmtpMailer {
     return {
       email,
       data,
-      size: Math.max(0, encode(data).length - encode('.\r\n').length),
+      size: encode(messageData).length,
     }
   }
 
@@ -1053,6 +1086,14 @@ export class SmtpMailer {
         this.logger.debug('SMTP server response:\n' + redactSmtpResponse(data))
       }
       this.responseBuffer = this.responseBuffer + data
+      if (this.responseBuffer.length > 65_536) {
+        const error = new SMTPError('SMTP response exceeds 64 KiB limit', {
+          stage,
+          command,
+        })
+        await this.abortConnection(error)
+        throw error
+      }
       const response = this.shiftResponse()
       if (response) {
         return response
@@ -1292,6 +1333,8 @@ export class SmtpMailer {
         })
       }
       this.socket = await socket.startTls()
+      // Plaintext bytes buffered before the upgrade cannot be TLS replies.
+      this.responseBuffer = ''
       this.tlsMode = 'starttls'
       this.reader = this.socket.readable.getReader()
       this.writer = this.socket.writable.getWriter()
@@ -1413,11 +1456,13 @@ export class SmtpMailer {
   }
 
   private async auth() {
-    if (!this.allowAuth) {
-      return
-    }
     if (!this.credentials) {
       return
+    }
+    if (!this.allowAuth) {
+      throw new SMTPError('SMTP server did not advertise AUTH', {
+        stage: 'auth',
+      })
     }
     const startedAt = Date.now()
     const credentials = this.credentials
@@ -1717,13 +1762,11 @@ export class SmtpMailer {
     const recipientCommands = recipients.map(recipient =>
       this.rcptCommand(recipient, prepared.email),
     )
-    const dataCommand = 'DATA'
 
     await this.writeLine(mailCommand)
     for (const command of recipientCommands) {
       await this.writeLine(command)
     }
-    await this.writeLine(dataCommand)
 
     let firstError: SMTPError | undefined
     const mailResponse = await this.readTimeout('mail', mailCommand)
@@ -1751,15 +1794,6 @@ export class SmtpMailer {
       } else if (response.startsWith('2')) {
         transaction.accepted.push(recipients[index])
       }
-    }
-
-    const dataResponse = await this.readTimeout('data', dataCommand)
-    if (!dataResponse.startsWith('3') && !firstError) {
-      firstError = new SMTPError(`Failed to send DATA: ${dataResponse}`, {
-        stage: 'data',
-        command: dataCommand,
-        response: dataResponse,
-      })
     }
 
     if (firstError) {
@@ -1875,6 +1909,7 @@ export class SmtpMailer {
 
   private mailCommand(prepared: PreparedEmail): string {
     const email = prepared.email
+    assertMailbox(this.mailFrom(email), 'Envelope sender', true)
     const message = [`MAIL FROM: <${this.mailFrom(email)}>`]
     const parameters = this.mailParameters(prepared)
     if (parameters.length) {
@@ -1884,6 +1919,7 @@ export class SmtpMailer {
   }
 
   private rcptCommand(emailAddress: string, email: Email): string {
+    assertMailbox(emailAddress, 'Envelope recipient')
     let message = `RCPT TO: <${emailAddress}>`
     const parameters = this.rcptParameters(email)
     if (parameters.length) {
@@ -1903,7 +1939,7 @@ export class SmtpMailer {
   }
 
   private mailFrom(email: Email) {
-    return email.envelope?.from || email.from.email
+    return email.envelope?.from ?? email.from.email
   }
 
   private mailParameters(prepared: PreparedEmail) {
@@ -1911,13 +1947,21 @@ export class SmtpMailer {
     const parameters: string[] = []
     const envelope = email.envelope
 
+    if (this.maxMessageSize && prepared.size > this.maxMessageSize) {
+      throw new SMTPError('Message exceeds advertised SIZE limit', {
+        stage: 'mail',
+        retryHint: 'do_not_retry',
+        nextAction: 'reduce_message_size',
+      })
+    }
+
     if (this.supportsSize) {
       parameters.push(`SIZE=${envelope?.size ?? prepared.size}`)
     }
 
     const body = envelope?.body?.toUpperCase() as SmtpBodyType | undefined
     if (body) {
-      if (!this.supports8BitMime) {
+      if (body === '8BITMIME' && !this.supports8BitMime) {
         throw new SMTPError(`${body} requires 8BITMIME support`, {
           stage: 'mail',
           command: 'MAIL FROM',

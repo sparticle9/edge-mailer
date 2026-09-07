@@ -1,11 +1,14 @@
 import { decode, encode, encodeQuotedPrintable } from './utils.ts'
 import {
-  createIcsAttachment,
-  type ICalendarOptions,
-} from './icalendar.ts'
+  assertHeaderValue,
+  assertMailbox,
+  quoteHeaderValue,
+} from './validation.ts'
+import { createIcsAttachment, type ICalendarOptions } from './icalendar.ts'
 
 /** Encodes non-ASCII header text using RFC 2047 quoted-printable words. */
 export function encodeHeader(text: string): string {
+  assertHeaderValue(text, 'Header text')
   // If the text contains any non-ASCII characters, encode the whole string
   if (!/[^\x00-\x7F]/.test(text)) {
     return text
@@ -76,11 +79,7 @@ export type AttachmentEncoding = 'base64' | 'quoted-printable' | '7bit'
 export type AttachmentDisposition = 'attachment' | 'inline'
 /** Supported attachment content inputs. */
 export type EmailAttachmentContent =
-  | string
-  | Uint8Array
-  | ArrayBuffer
-  | ArrayBufferView
-  | Blob
+  string | Uint8Array | ArrayBuffer | ArrayBufferView | Blob
 /** File or inline part to include in the generated MIME message. */
 export type EmailAttachment = {
   filename: string
@@ -175,12 +174,12 @@ export class Email {
     if (typeof options.from === 'string') {
       this.from = { email: options.from }
     } else {
-      this.from = options.from
+      this.from = { ...options.from }
     }
     if (typeof options.reply === 'string') {
       this.reply = { email: options.reply }
     } else {
-      this.reply = options.reply
+      this.reply = options.reply ? { ...options.reply } : undefined
     }
     this.to = Email.toUsers(options.to)!
     this.cc = Email.toUsers(options.cc)
@@ -192,9 +191,7 @@ export class Email {
     this.messageId = options.messageId
     this.inReplyTo = options.inReplyTo
     this.references = options.references
-    this.attachments = options.attachments
-      ? [...options.attachments]
-      : []
+    this.attachments = options.attachments ? [...options.attachments] : []
 
     // Calendar invite: generate .ics attachment from icalendar options.
     if (options.icalendar) {
@@ -208,7 +205,7 @@ export class Email {
         }
       : undefined
     this.dsnOverride = options.dsnOverride
-    this.headers = options.headers || {}
+    this.headers = { ...options.headers }
   }
 
   private static toUsers(
@@ -224,10 +221,10 @@ export class Email {
         if (typeof user === 'string') {
           return { email: user }
         }
-        return user
+        return { ...user }
       })
     } else {
-      return [user]
+      return [{ ...user }]
     }
   }
 
@@ -237,7 +234,7 @@ export class Email {
     if (!recipients) {
       return
     }
-    return Array.isArray(recipients) ? recipients : [recipients]
+    return Array.isArray(recipients) ? [...recipients] : [recipients]
   }
 
   /** Returns MIME message data without SMTP dot-stuffing. */
@@ -251,10 +248,15 @@ export class Email {
   }
 
   private buildMessageData(attachments: ResolvedEmailAttachment[] | undefined) {
+    this.validate()
     this.resolveHeader()
 
     const headersArray: string[] = ['MIME-Version: 1.0']
     for (const [key, value] of Object.entries(this.headers)) {
+      if (!/^[!-9;-~]+$/.test(key)) {
+        throw new Error('Invalid MIME header name')
+      }
+      assertHeaderValue(value, 'MIME header value')
       if (key.toLowerCase() === 'bcc') {
         continue
       }
@@ -405,13 +407,23 @@ export class Email {
       this.getMimeType(attachment.filename)
     const disposition = this.attachmentDisposition(attachment)
     const encoding = attachment.encoding || 'base64'
+    assertHeaderValue(mimeType, 'Attachment content type')
+    assertHeaderValue(attachment.filename, 'Attachment filename')
+    if (
+      !['attachment', 'inline'].includes(disposition) ||
+      !['base64', 'quoted-printable', '7bit'].includes(encoding)
+    ) {
+      throw new Error('Invalid attachment disposition or encoding')
+    }
+    const filename = quoteHeaderValue(attachment.filename)
     let part = `--${boundary}\r\n`
-    part += `Content-Type: ${mimeType}; name="${attachment.filename}"\r\n`
+    part += `Content-Type: ${mimeType}; name="${filename}"\r\n`
     part += `Content-Description: ${attachment.filename}\r\n`
     if (attachment.contentId) {
+      assertHeaderValue(attachment.contentId, 'Attachment content id')
       part += `Content-ID: <${attachment.contentId.replace(/[<>]/g, '')}>\r\n`
     }
-    part += `Content-Disposition: ${disposition}; filename="${attachment.filename}";\r\n`
+    part += `Content-Disposition: ${disposition}; filename="${filename}";\r\n`
     part += `    creation-date="${new Date().toUTCString()}";\r\n`
     part += `Content-Transfer-Encoding: ${encoding}\r\n\r\n`
     part += `${this.encodedAttachmentContent(attachment, encoding)}\r\n\r\n`
@@ -442,7 +454,7 @@ export class Email {
     if (/[^\x00-\x7F]/.test(content)) {
       throw new Error('7bit attachment content must contain ASCII only')
     }
-    return content.replace(/\r?\n/g, '\r\n')
+    return content.replace(/\r\n|\r|\n/g, '\r\n')
   }
 
   private attachmentTextContent(attachment: ResolvedEmailAttachment) {
@@ -504,7 +516,9 @@ export class Email {
 
   /** Dot-stuffs MIME data and appends the SMTP DATA terminator. */
   public static toSmtpData(data: string): string {
-    const safeEmailData = Email.applyDotStuffing(data)
+    const safeEmailData = Email.applyDotStuffing(
+      data.replace(/\r\n|\r|\n/g, '\r\n'),
+    )
 
     return safeEmailData.endsWith('\r\n')
       ? `${safeEmailData}.\r\n`
@@ -571,13 +585,50 @@ export class Email {
     }
   }
 
+  private validate() {
+    for (const user of [
+      this.from,
+      ...this.to,
+      ...(this.cc || []),
+      ...(this.bcc || []),
+      ...(this.reply ? [this.reply] : []),
+    ]) {
+      assertMailbox(user.email, 'Email address')
+      if (user.name !== undefined) assertHeaderValue(user.name, 'Display name')
+    }
+    assertHeaderValue(this.subject, 'Subject')
+    for (const value of [
+      this.messageId,
+      this.inReplyTo,
+      ...(Array.isArray(this.references) ? this.references : [this.references]),
+    ]) {
+      if (value !== undefined) assertHeaderValue(value, 'Thread header')
+    }
+    if (this.envelope?.from !== undefined)
+      assertMailbox(this.envelope.from, 'Envelope sender', true)
+    for (const recipient of this.envelope?.to || [])
+      assertMailbox(recipient, 'Envelope recipient')
+    if (
+      this.envelope?.size !== undefined &&
+      (!Number.isSafeInteger(this.envelope.size) || this.envelope.size < 0)
+    ) {
+      throw new Error('Envelope size must be a non-negative safe integer')
+    }
+    if (
+      this.envelope?.body !== undefined &&
+      !['7BIT', '8BITMIME'].includes(this.envelope.body)
+    ) {
+      throw new Error('Invalid envelope body type')
+    }
+  }
+
   private resolveFrom() {
     if (this.headers['From']) {
       return
     }
     let from = this.from.email
     if (this.from.name) {
-      from = `"${encodeHeader(this.from.name)}" <${from}>`
+      from = `"${quoteHeaderValue(encodeHeader(this.from.name))}" <${from}>`
     }
     this.headers['From'] = from
   }
@@ -588,7 +639,7 @@ export class Email {
     }
     const toAddresses = this.to.map(user => {
       if (user.name) {
-        return `"${encodeHeader(user.name)}" <${user.email}>`
+        return `"${quoteHeaderValue(encodeHeader(user.name))}" <${user.email}>`
       }
       return user.email
     })
@@ -611,7 +662,7 @@ export class Email {
     if (this.reply) {
       let replyAddress = this.reply.email
       if (this.reply.name) {
-        replyAddress = `"${encodeHeader(this.reply.name)}" <${replyAddress}>`
+        replyAddress = `"${quoteHeaderValue(encodeHeader(this.reply.name))}" <${replyAddress}>`
       }
       this.headers['Reply-To'] = replyAddress
     }
@@ -624,7 +675,7 @@ export class Email {
     if (this.cc) {
       const ccAddresses = this.cc.map(user => {
         if (user.name) {
-          return `"${encodeHeader(user.name)}" <${user.email}>`
+          return `"${quoteHeaderValue(encodeHeader(user.name))}" <${user.email}>`
         }
         return user.email
       })

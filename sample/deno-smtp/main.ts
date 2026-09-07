@@ -7,6 +7,7 @@ import {
   type EmailOptions,
   type MailObservationEvent,
 } from '../../src/deno.ts'
+import { isSampleAuthorized, readSampleBody } from '../http.ts'
 
 function env(name: string): string | undefined {
   return Deno.env.get(name)
@@ -72,6 +73,7 @@ function smtpConfig(): EdgeMailerOptions {
     port,
     secure: port === 465,
     startTls: port !== 465,
+    tlsPolicy: port === 465 ? 'require-tls' : 'require-starttls',
     credentials: useXOAuth2
       ? { username, accessToken: accessToken! }
       : { username, password: password! },
@@ -121,14 +123,7 @@ function sampleEmail(body: Partial<EmailOptions> = {}): EmailOptions {
 }
 
 function authorized(request: Request) {
-  const token = env('SAMPLE_SEND_TOKEN')
-  if (!token) {
-    return true
-  }
-  const authorization = request.headers.get('authorization')
-  const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
-  const headerToken = request.headers.get('x-sample-send-token')
-  return bearer === token || headerToken === token
+  return isSampleAuthorized(request, env('SAMPLE_SEND_TOKEN'))
 }
 
 Deno.serve(async request => {
@@ -154,14 +149,21 @@ Deno.serve(async request => {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = (await request
-    .json()
-    .catch(() => ({}))) as Partial<EmailOptions> & {
+  let body: Partial<EmailOptions> & {
     captureObservation?: boolean
+  }
+  try {
+    body = await readSampleBody(request)
+  } catch {
+    return Response.json(
+      { error: 'Expected a JSON object of at most 1 MiB' },
+      { status: 400 },
+    )
   }
   const email = sampleEmail(body)
   const observationEvents: MailObservationEvent[] = []
   const config = smtpConfig()
+  config.signal = request.signal
   if (body.captureObservation) {
     config.observation = {
       mode: 'summary',

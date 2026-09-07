@@ -73,7 +73,10 @@ export class EdgeMailer extends SmtpMailer {
     email: EmailOptions,
     sendOptions: SendOptions = {},
   ): Promise<SmtpSendReceipt> {
-    const mailer = await EdgeMailer.connect(options)
+    const mailer = await EdgeMailer.connect({
+      ...options,
+      signal: sendOptions.signal || options.signal,
+    })
     try {
       return await mailer.send(email, sendOptions)
     } finally {
@@ -87,7 +90,10 @@ export class EdgeMailer extends SmtpMailer {
     emails: EmailOptions[],
     batchOptions: BatchSendOptions = {},
   ): Promise<BatchSendResult> {
-    const mailer = await EdgeMailer.connect(options)
+    const mailer = await EdgeMailer.connect({
+      ...options,
+      signal: batchOptions.signal || options.signal,
+    })
     try {
       return await mailer.sendMany(emails, batchOptions)
     } finally {

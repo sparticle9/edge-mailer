@@ -22,10 +22,7 @@ export type MailObservationEventType =
 
 /** Stage outcome carried by observation events. */
 export type MailObservationStatus =
-  | 'started'
-  | 'completed'
-  | 'failed'
-  | 'skipped'
+  'started' | 'completed' | 'failed' | 'skipped'
 
 /** Compact failure reasons intended for retry policy and agent routing. */
 export type MailFailureReason =
@@ -40,6 +37,7 @@ export type MailFailureReason =
   | 'sender_rejected'
   | 'recipient_rejected'
   | 'data_rejected'
+  | 'delivery_unknown'
   | 'unsupported_extension'
   | 'rate_limited'
   | 'server_rejected'
@@ -187,6 +185,9 @@ function failureReason(
   message: string,
   responseCode?: number,
 ): MailFailureReason {
+  if (stage === 'body' && !responseCode) {
+    return 'delivery_unknown'
+  }
   if (message.includes('timeout')) {
     return 'timeout'
   }

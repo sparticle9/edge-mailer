@@ -4,7 +4,7 @@
  *
  * @example
  * ```ts
- * import { DenoMailer } from "@sparticle9/edge-mailer/deno";
+ * import { DenoMailer } from "edge-mailer/deno";
  * ```
  *
  * @module deno

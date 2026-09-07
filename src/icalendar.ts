@@ -1,3 +1,5 @@
+import { assertHeaderValue, assertMailbox } from './validation.ts'
+
 /**
  * iCalendar (RFC 5545) event model and generator.
  *
@@ -50,17 +52,26 @@ export type ICalendarOptions = {
 
 function textLines(text: string, maxLen = 75): string {
   const lines: string[] = []
-  for (let i = 0; i < text.length; i += maxLen) {
-    const chunk = text.slice(i, i + maxLen)
-    lines.push(i === 0 ? chunk : ` ${chunk}`)
+  let line = ''
+  let bytes = 0
+  for (const char of text) {
+    const length = new TextEncoder().encode(char).length
+    if (bytes + length > maxLen) {
+      lines.push(line)
+      line = ' '
+      bytes = 1
+    }
+    line += char
+    bytes += length
   }
+  lines.push(line)
   return lines.join('\r\n')
 }
 
 function escapeIcsText(text: string): string {
   return text
     .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
+    .replace(/\r\n|\r|\n/g, '\\n')
     .replace(/;/g, '\\;')
     .replace(/,/g, '\\,')
 }
@@ -88,6 +99,23 @@ export function createIcsString(options: ICalendarOptions): string {
   const uid = options.uid || crypto.randomUUID()
   const seq = options.sequence ?? 0
   const method = options.method || 'REQUEST'
+  assertHeaderValue(uid, 'Calendar uid')
+  if (
+    !['REQUEST', 'CANCEL', 'PUBLISH'].includes(method) ||
+    !Number.isSafeInteger(seq) ||
+    seq < 0
+  ) {
+    throw new Error('Invalid calendar method or sequence')
+  }
+  for (const date of [options.start, options.end, dtstamp]) {
+    if (!/^(?:\d{8}|\d{8}T\d{6}Z)$/.test(date)) {
+      throw new Error('Calendar dates must use YYYYMMDD or YYYYMMDDTHHMMSSZ')
+    }
+  }
+  const parameter = (name: string) => {
+    assertHeaderValue(name, 'Calendar display name')
+    return `"${name.replace(/\^/g, '^^').replace(/"/g, "^'")}"`
+  }
 
   const lines: string[] = []
 
@@ -99,10 +127,14 @@ export function createIcsString(options: ICalendarOptions): string {
 
   // VEVENT
   lines.push('BEGIN:VEVENT')
-  lines.push(`UID:${uid}`)
+  lines.push(`UID:${escapeIcsText(uid)}`)
   lines.push(`DTSTAMP:${dtstamp}`)
-  lines.push(`DTSTART:${options.start}`)
-  lines.push(`DTEND:${options.end}`)
+  lines.push(
+    `DTSTART${options.start.length === 8 ? ';VALUE=DATE' : ''}:${options.start}`,
+  )
+  lines.push(
+    `DTEND${options.end.length === 8 ? ';VALUE=DATE' : ''}:${options.end}`,
+  )
   lines.push(`SEQUENCE:${seq}`)
   lines.push(`SUMMARY:${escapeIcsText(options.summary)}`)
 
@@ -116,16 +148,24 @@ export function createIcsString(options: ICalendarOptions): string {
 
   // Organizer
   if (options.organizer) {
+    assertMailbox(options.organizer.email, 'Calendar organizer')
     const orgParam = options.organizer.name
-      ? `;CN=${escapeIcsText(options.organizer.name)}`
+      ? `;CN=${parameter(options.organizer.name)}`
       : ''
     lines.push(`ORGANIZER${orgParam}:mailto:${options.organizer.email}`)
   }
 
   // Attendees
   for (const a of options.attendees || []) {
+    assertMailbox(a.email, 'Calendar attendee')
+    if (
+      a.role &&
+      !['CHAIR', 'REQ-PARTICIPANT', 'OPT-PARTICIPANT'].includes(a.role)
+    ) {
+      throw new Error('Invalid calendar attendee role')
+    }
     const parts: string[] = []
-    if (a.name) parts.push(`CN=${escapeIcsText(a.name)}`)
+    if (a.name) parts.push(`CN=${parameter(a.name)}`)
     if (a.role) parts.push(`ROLE=${a.role}`)
     parts.push(`RSVP=${a.rsvp !== false ? 'TRUE' : 'FALSE'}`)
     parts.push(`PARTSTAT=NEEDS-ACTION`)
@@ -151,9 +191,12 @@ export function createIcsAttachment(options: ICalendarOptions): {
   encoding: 'base64'
 } {
   const icsString = createIcsString(options)
-  const uid = options.uid || `edge-mailer-ics`
   // Encode to base64 for safe MIME transport
-  const base64 = btoa(icsString)
+  const base64 = btoa(
+    Array.from(new TextEncoder().encode(icsString), byte =>
+      String.fromCharCode(byte),
+    ).join(''),
+  )
   return {
     filename: `invite.ics`,
     content: base64,

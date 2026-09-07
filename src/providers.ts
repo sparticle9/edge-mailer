@@ -6,11 +6,7 @@ import type {
 } from './smtp/mailer.ts'
 
 export type ProviderProfileName =
-  | 'custom'
-  | 'google-workspace'
-  | 'microsoft-365'
-  | 'ses'
-  | 'yandex'
+  'custom' | 'google-workspace' | 'microsoft-365' | 'ses' | 'yandex'
 
 export type ProviderProfile = {
   name: ProviderProfileName
@@ -131,7 +127,7 @@ export function customSmtpProfile(
       port: options.port ?? 587,
       secure: options.secure ?? false,
       startTls: options.startTls ?? true,
-      tlsPolicy: options.tlsPolicy ?? 'opportunistic',
+      tlsPolicy: options.tlsPolicy ?? 'require-tls',
       authType: normalizeAuthTypes(options.authType) || ['plain', 'login'],
       notes: [
         'Use capability probing to confirm STARTTLS, AUTH, SIZE, and DSN support.',

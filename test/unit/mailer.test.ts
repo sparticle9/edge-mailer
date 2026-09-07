@@ -87,6 +87,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -131,6 +132,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -191,6 +193,7 @@ describe('EdgeMailer', () => {
       await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -252,6 +255,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           socketTimeoutMs: 100,
         }),
       ).rejects.toThrow('Socket timeout!')
@@ -268,6 +272,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           responseTimeoutMs: 10,
         }),
       ).rejects.toMatchObject({
@@ -291,6 +296,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
         }),
       ).rejects.toMatchObject({
         name: 'SMTPError',
@@ -306,6 +312,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           signal: controller.signal,
         }),
       ).rejects.toMatchObject({
@@ -337,6 +344,7 @@ describe('EdgeMailer', () => {
       const capabilities = await EdgeMailer.probe({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         startTls: false,
         credentials: {
           username: 'test@example.com',
@@ -389,6 +397,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -418,6 +427,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -480,6 +490,7 @@ describe('EdgeMailer', () => {
       await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -516,6 +527,7 @@ describe('EdgeMailer', () => {
       await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -553,6 +565,7 @@ describe('EdgeMailer', () => {
       await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -590,6 +603,7 @@ describe('EdgeMailer', () => {
       await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -616,6 +630,7 @@ describe('EdgeMailer', () => {
       await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           accessToken: 'ya29.access-token',
@@ -646,6 +661,7 @@ describe('EdgeMailer', () => {
       await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           accessToken: tokenProvider,
@@ -673,6 +689,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           credentials: {
             username: 'test@example.com',
             accessToken: () => ' ',
@@ -715,6 +732,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           credentials: {
             username: 'test@example.com',
             accessToken: 'expired-token',
@@ -753,6 +771,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           credentials: {
             username: 'test@example.com',
             password: 'wrong',
@@ -793,6 +812,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           credentials: {
             username: 'test@example.com',
             password: 'wrong',
@@ -832,6 +852,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           credentials: {
             username: 'test@example.com',
             password: 'wrong',
@@ -866,6 +887,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           credentials: {
             username: 'test@example.com',
             password: 'password',
@@ -914,6 +936,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1000,6 +1023,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1092,6 +1116,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1180,6 +1205,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1255,6 +1281,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1310,6 +1337,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1394,6 +1422,7 @@ describe('EdgeMailer', () => {
       const pool = EdgeMailer.createPool({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1474,6 +1503,7 @@ describe('EdgeMailer', () => {
         {
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           credentials: {
             username: 'test@example.com',
             password: 'password',
@@ -1552,6 +1582,7 @@ describe('EdgeMailer', () => {
         {
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           credentials: {
             username: 'test@example.com',
             password: 'password',
@@ -1590,7 +1621,7 @@ describe('EdgeMailer', () => {
   })
 
   describe('pipelining', () => {
-    it('should pipeline MAIL, RCPT, and DATA before writing the body', async () => {
+    it('should pipeline the envelope before DATA and the message body', async () => {
       mockReader.read
         .mockResolvedValueOnce({
           value: new TextEncoder().encode('220 smtp.example.com ready\r\n'),
@@ -1622,6 +1653,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1679,6 +1711,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1711,6 +1744,7 @@ describe('EdgeMailer', () => {
         EdgeMailer.connect({
           host: 'smtp.example.com',
           port: 587,
+          tlsPolicy: 'opportunistic',
           logLevel: LogLevel.NONE,
           observation: {
             onEvent: event => events.push(event),
@@ -1769,6 +1803,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1854,6 +1889,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -1929,6 +1965,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -2016,6 +2053,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',
@@ -2072,6 +2110,7 @@ describe('EdgeMailer', () => {
       const mailer = await EdgeMailer.connect({
         host: 'smtp.example.com',
         port: 587,
+        tlsPolicy: 'opportunistic',
         credentials: {
           username: 'test@example.com',
           password: 'password',

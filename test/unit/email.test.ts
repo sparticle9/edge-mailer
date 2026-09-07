@@ -807,13 +807,8 @@ describe('encodeHeader', () => {
   })
 
   describe('Boundary conditions for headers', () => {
-    it('should handle text at ASCII boundary (char 127)', () => {
-      const input = 'Test\x7F' // DEL character
-      const result = encodeHeader(input)
-      // DEL character (0x7F) is in printable range (33-126) boundary
-      // Our implementation doesn't encode it as it's technically printable
-      // This is acceptable behavior
-      expect(result).toBeTruthy()
+    it('rejects the DEL control character in headers', () => {
+      expect(() => encodeHeader('Test\x7F')).toThrow('control characters')
     })
 
     it('should handle text at ASCII boundary (char 128)', () => {

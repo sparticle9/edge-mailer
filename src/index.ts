@@ -4,7 +4,7 @@
  *
  * The default entrypoint is intended for Cloudflare Workers and other build
  * pipelines that understand the `cloudflare:sockets` module. Use
- * `@sparticle9/edge-mailer/deno` for Deno CLI or Deno Deploy.
+ * `edge-mailer/deno` for Deno CLI or Deno Deploy.
  *
  * @module edge_mailer
  */

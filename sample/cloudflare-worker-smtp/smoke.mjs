@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process'
+import { writeFile, rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +18,7 @@ const sampleDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(sampleDir, '../..')
 const port = Number(process.env.CLOUDFLARE_SAMPLE_PORT || 8787)
 const baseUrl = `http://127.0.0.1:${port}`
+const sampleToken = crypto.randomUUID()
 
 function env(name) {
   return process.env[name]
@@ -54,6 +56,7 @@ function collectVars() {
   }
 
   const values = {
+    SAMPLE_SEND_TOKEN: sampleToken,
     SMTP_HOST: required('SMTP_HOST'),
     SMTP_PORT: env('SMTP_PORT'),
     SMTP_USERNAME: username,
@@ -122,7 +125,10 @@ async function waitForWorker(child) {
 async function postSmoke(body) {
   const response = await fetch(baseUrl, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${sampleToken}`,
+    },
     body: JSON.stringify(body),
   })
   const text = await response.text()
@@ -142,6 +148,13 @@ async function postSmoke(body) {
 
 async function main() {
   const vars = collectVars()
+  const smokeEnv = `smoke-${crypto.randomUUID()}`
+  const varsPath = resolve(sampleDir, `.dev.vars.${smokeEnv}`)
+  await writeFile(
+    varsPath,
+    vars.map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n'),
+    { mode: 0o600, flag: 'wx' },
+  )
   const dsnCapture = createSmokeDsnCapture('cloudflare-sample', process.env)
   const wranglerArgs = [
     'exec',
@@ -149,6 +162,8 @@ async function main() {
     'dev',
     '--config',
     'sample/cloudflare-worker-smtp/wrangler.toml',
+    '--env',
+    smokeEnv,
     '--ip',
     '127.0.0.1',
     '--port',
@@ -158,10 +173,6 @@ async function main() {
     'error',
     '--show-interactive-dev-session=false',
   ]
-  for (const [key, value] of vars) {
-    wranglerArgs.push('--var', `${key}:${value}`)
-  }
-
   const wrangler = spawn('pnpm', wranglerArgs, {
     cwd: repoRoot,
     env: { ...process.env, CI: '1', NO_COLOR: '1' },
@@ -199,7 +210,9 @@ async function main() {
       dsnCapture.error = error instanceof Error ? error.message : String(error)
       await writeSmokeDsnCapture(dsnCapture)
     }
-    console.error(error instanceof Error ? error.message : String(error))
+    console.error(
+      redact(error instanceof Error ? error.message : String(error), vars),
+    )
     if (wranglerOutput.trim()) {
       console.error('Recent wrangler output:')
       console.error(redact(wranglerOutput, vars))
@@ -211,6 +224,7 @@ async function main() {
     if (wrangler.exitCode === null) {
       wrangler.kill('SIGKILL')
     }
+    await rm(varsPath, { force: true })
   }
 }
 

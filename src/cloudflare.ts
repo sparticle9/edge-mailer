@@ -3,7 +3,7 @@
  *
  * @example
  * ```ts
- * import { EdgeMailer } from "@sparticle9/edge-mailer/cloudflare";
+ * import { EdgeMailer } from "edge-mailer/cloudflare";
  * ```
  *
  * @module cloudflare
