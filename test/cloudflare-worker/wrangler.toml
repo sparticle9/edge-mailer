@@ -1,3 +1,8 @@
 name = "edge-mailer-tester"
 main = "worker.ts"
 compatibility_date = "2026-05-18"
+
+[[d1_databases]]
+binding = "STARTER_DB"
+database_name = "starter-tests"
+database_id = "00000000-0000-0000-0000-000000000000"

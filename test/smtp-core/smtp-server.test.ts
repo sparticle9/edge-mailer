@@ -684,3 +684,67 @@ describe('SmtpMailer functional SMTP server integration', () => {
     }
   })
 })
+
+it('receives the complete DATA body on a real TCP server but loses the final acknowledgement', async () => {
+  const sockets = new Set<net.Socket>()
+  const received: string[] = []
+  const server = net.createServer(socket => {
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+    socket.write('220 local fixture\r\n')
+    let buffer = '',
+      data = false
+    socket.on('data', chunk => {
+      buffer += chunk.toString()
+      while (buffer.includes('\r\n')) {
+        const end = buffer.indexOf('\r\n'),
+          line = buffer.slice(0, end)
+        buffer = buffer.slice(end + 2)
+        if (data) {
+          if (line === '.') {
+            socket.destroy()
+            return
+          }
+          received.push(line)
+        } else if (/^(EHLO|HELO) /.test(line))
+          socket.write('250 local fixture\r\n')
+        else if (/^(MAIL FROM|RCPT TO):/.test(line)) socket.write('250 OK\r\n')
+        else if (line === 'DATA') {
+          data = true
+          socket.write('354 Continue\r\n')
+        }
+      }
+    })
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  try {
+    await expect(
+      FunctionalMailer.send(
+        {
+          host: '127.0.0.1',
+          port: (server.address() as AddressInfo).port,
+          startTls: false,
+          tlsPolicy: 'opportunistic',
+          socketTimeoutMs: 1000,
+          logLevel: 4,
+        },
+        {
+          from: 'sender@example.com',
+          to: 'recipient@example.com',
+          subject: 'Lost acknowledgement',
+          text: 'Complete body before disconnect',
+        },
+      ),
+    ).rejects.toMatchObject({
+      reason: 'delivery_unknown',
+      retryHint: 'unknown',
+    })
+    expect(received.join('\n')).toContain('Complete body before disconnect')
+  } finally {
+    for (const socket of sockets) socket.destroy()
+    await new Promise<void>((resolve, reject) =>
+      server.close(error => (error ? reject(error) : resolve())),
+    )
+  }
+})
