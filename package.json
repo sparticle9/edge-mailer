@@ -78,7 +78,7 @@
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20260906.1",
     "@types/libqp": "^1.1.3",
-    "@types/node": "^24.13.3",
+    "@types/node": "^26.4.1",
     "@types/smtp-server": "^3.5.13",
     "letterparser": "^0.1.8",
     "libqp": "^2.1.1",
