@@ -1,6 +1,6 @@
 {
   "name": "edge-mailer",
-  "version": "0.8.0",
+  "version": "0.8.5",
   "description": "SMTP submission toolkit for edge and serverless runtimes.",
   "license": "MIT",
   "author": "sparticle9 <201596840+sparticle9@users.noreply.github.com>",
@@ -66,12 +66,14 @@
     "test:deno": "deno test --no-lock --allow-net=127.0.0.1,localhost --config sample/deno-smtp/deno.json test/deno",
     "check:deno": "deno check --no-lock --config sample/deno-smtp/deno.json src/deno.ts sample/deno-smtp/main.ts sample/deno-smtp/smoke.ts test/deno/deno-connector.test.ts test/deno/smtp-compat.test.ts",
     "release:check": "node scripts/release-check.mjs",
-    "release:dry-run": "pnpm run release:check && pnpm test -- --run && pnpm run test:smtp-core && pnpm run build && pnpm run check:deno && pnpm run test:deno && node scripts/check-package.mjs && deno publish --dry-run --config jsr.json",
+    "release:dry-run": "pnpm run release:check && pnpm test -- --run && pnpm run test:smtp-core && pnpm run build && pnpm run check:starters && pnpm run check:deno && pnpm run test:deno && node scripts/check-package.mjs && deno publish --dry-run --config jsr.json",
     "release:sync-jsr-version": "node scripts/sync-jsr-version.mjs",
     "test:smoke:cloudflare": "direnv exec . node sample/cloudflare-worker-smtp/smoke.mjs",
     "test:smoke:deno": "direnv exec . sh -c 'cd sample/deno-smtp && deno task smoke'",
     "test:smoke:smtp": "direnv exec . node scripts/smtp-smoke.mjs",
-    "format": "prettier '**/*.{json,ts,js,cjs,mjs,md}' --write --ignore-path .gitignore"
+    "format": "prettier '**/*.{json,ts,js,cjs,mjs,md}' --write --ignore-path .gitignore",
+    "test:starters": "vitest run test/unit/starters.test.ts",
+    "check:starters": "tsc -p sample/contact-form/tsconfig.json && tsc -p sample/durable-outbox/tsconfig.json && wrangler deploy --dry-run --config sample/contact-form/wrangler.jsonc --outdir /tmp/edge-mailer-contact-build && wrangler deploy --dry-run --config sample/durable-outbox/wrangler.jsonc --outdir /tmp/edge-mailer-outbox-build"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
