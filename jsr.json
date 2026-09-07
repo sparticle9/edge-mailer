@@ -1,13 +1,18 @@
 {
   "name": "@sparticle9/edge-mailer",
-  "version": "0.7.5",
+  "version": "0.8.0",
   "exports": {
     ".": "./src/index.ts",
     "./cloudflare": "./src/cloudflare.ts",
     "./deno": "./src/deno.ts"
   },
   "compilerOptions": {
-    "lib": ["deno.ns", "dom", "dom.iterable", "esnext"]
+    "lib": [
+      "deno.ns",
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ]
   },
   "publish": {
     "include": [
@@ -17,7 +22,9 @@
       "CHANGELOG.md",
       "llms.txt",
       ".agents/skills/edge-mailer/SKILL.md",
-      "LICENSE"
+      "LICENSE",
+      "USE-CASES.md",
+      "SECURITY.md"
     ]
   }
 }

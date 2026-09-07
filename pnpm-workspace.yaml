@@ -2,3 +2,10 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+
+# Patched development-only transitive dependencies. Remove each override once
+# the upstream test/build tools require the patched version themselves.
+overrides:
+  'undici@7': '^7.29.0'
+  'sharp@0.34': '^0.35.4'
+  'esbuild@0.27': '^0.28.1'
