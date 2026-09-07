@@ -180,7 +180,7 @@ mailbox receiver.
 
 ## Notes
 
-- Keep `SAMPLE_SEND_TOKEN` set for hosted deployments; otherwise POST is public.
+- Set `SAMPLE_SEND_TOKEN` before using the HTTP endpoints. Missing or invalid tokens return 401. Keep the token on your server; add application authorization and rate limits before exposing a user-facing mail feature.
 - Workers cannot open outbound TCP sockets to port `25`.
 - For logs: `direnv exec . pnpm exec wrangler tail --config sample/cloudflare-worker-smtp/wrangler.toml`.
 - Cloudflare docs: [Wrangler env vars](https://developers.cloudflare.com/workers/wrangler/system-environment-variables/), [secrets](https://developers.cloudflare.com/workers/configuration/secrets/), [TCP sockets](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/).

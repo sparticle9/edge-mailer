@@ -1,0 +1,17 @@
+name: Use case or feature proposal
+description: Explain the workflow you want to build.
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: User and workflow
+      description: Who needs this, which runtime are they using, and what are they trying to achieve?
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: Current limitation and success criteria
+      description: What blocks you today, and what would a working result look like?
+    validations:
+      required: true

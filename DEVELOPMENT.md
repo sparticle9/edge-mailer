@@ -23,6 +23,7 @@ export default {
         port: 587,
         secure: false,
         startTls: true,
+        tlsPolicy: 'require-starttls',
         credentials: {
           username: 'sender@example.com',
           password: 'smtp-password',
@@ -54,6 +55,7 @@ const receipt = await DenoMailer.send(
     port: 587,
     secure: false,
     startTls: true,
+    tlsPolicy: 'require-starttls',
     credentials: {
       username: 'sender@example.com',
       password: 'smtp-password',
@@ -71,51 +73,10 @@ const receipt = await DenoMailer.send(
 console.log(receipt.messageId)
 ```
 
-For Queue consumers or scheduled jobs, reuse one SMTP session per invocation:
-
-```ts
-import { EdgeMailer, type EmailOptions } from 'edge-mailer/cloudflare'
-
-type Env = {
-  SMTP_HOST: string
-  SMTP_PORT?: string
-  SMTP_USERNAME: string
-  SMTP_PASSWORD: string
-  SMTP_FROM: string
-}
-
-export default {
-  async queue(batch: MessageBatch<EmailOptions>, env: Env) {
-    const port = Number(env.SMTP_PORT || 587)
-    const results = await EdgeMailer.sendBatch(
-      {
-        host: env.SMTP_HOST,
-        port,
-        secure: port === 465,
-        startTls: port !== 465,
-        credentials: {
-          username: env.SMTP_USERNAME,
-          password: env.SMTP_PASSWORD,
-        },
-        authType: ['plain', 'login'],
-      },
-      batch.messages.map(message => ({
-        from: env.SMTP_FROM,
-        ...message.body,
-      })),
-      { continueOnError: true },
-    )
-
-    for (const [index, result] of results.entries()) {
-      if (result.status === 'fulfilled') {
-        batch.messages[index].ack()
-      } else {
-        batch.messages[index].retry()
-      }
-    }
-  },
-} satisfies ExportedHandler<Env, EmailOptions>
-```
+For Queue consumers and scheduled jobs, follow the outcome table and outbox
+requirements in [USE-CASES.md](USE-CASES.md). Scope sessions to a Worker
+invocation and close them in `finally`; handle permanent errors and ambiguous
+DATA outcomes explicitly before enabling queue retries.
 
 SMTP failures throw `SMTPError` when the error came from the SMTP session.
 
@@ -136,8 +97,8 @@ try {
 }
 ```
 
-Use `SMTPError.transient` at the Queue or job layer to decide whether a send
-attempt should be retried.
+Use the error stage, reason and retry hint together. A missing final DATA reply
+is `delivery_unknown`; a boolean transient flag alone is not a retry policy.
 
 ## Local Checks
 
@@ -206,19 +167,12 @@ pnpm changeset
 pnpm run version
 ```
 
-The first public release is bootstrapped directly as `0.6.0`. Publishing is
-triggered by publishing a GitHub Release with the matching tag, for example
-`v0.6.0`. The release workflow publishes `edge-mailer` to npm and
-`@sparticle9/edge-mailer` to JSR without attaching GitHub release artifacts.
-
-Before the first JSR publish, create the `@sparticle9/edge-mailer` package on
-JSR and link it to `sparticle9/edge-mailer` for GitHub Actions OIDC. Before the
-first npm publish, configure npm trusted publishing for `sparticle9/edge-mailer`
-and `.github/workflows/publish.yml`; no npm token secret is used. If npm does
-not allow trusted-publisher setup before the first package version exists,
-publish `0.6.0` once with local interactive 2FA and without provenance, then
-configure trusted publishing. The release workflow skips npm when the matching
-version is already published.
+Publishing is triggered by publishing a GitHub Release with the matching tag.
+The workflow publishes to npm and JSR using existing trusted publisher links;
+no local publish or registry token is needed. Review the exact release commit,
+wait for CI, then publish the matching tag through GitHub. If one registry
+succeeds and the other fails, inspect the workflow logs before retrying; never
+change source under an already published version.
 
 ## Test Layout
 

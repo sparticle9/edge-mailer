@@ -202,7 +202,7 @@ mailbox receiver.
 
 ## Notes
 
-- Keep `SAMPLE_SEND_TOKEN` set for hosted deployments; otherwise POST is public.
+- Set `SAMPLE_SEND_TOKEN` before using the HTTP endpoints. Missing or invalid tokens return 401. Keep the token on your server; add application authorization and rate limits before exposing a user-facing mail feature.
 - Use `deno deploy`, not `deployctl`.
 - Deno Deploy v2 runs with `--allow-all` and does not accept custom runtime flags.
 - For logs: `direnv exec . deno deploy logs --token "$DENO_ACCESS_TOKEN" --org "$DENO_DEPLOY_ORG" --app "$DENO_DEPLOY_APP"`.

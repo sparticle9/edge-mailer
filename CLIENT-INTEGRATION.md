@@ -36,6 +36,7 @@ const receipt = await EdgeMailer.send(
     port: 587,
     secure: false,
     startTls: true,
+    tlsPolicy: 'require-starttls',
     credentials: {
       username: 'sender@example.com',
       password: env.SMTP_PASSWORD,
@@ -91,7 +92,8 @@ Use `secure: true` with port `465` for implicit TLS. Use `secure: false` and
 the client does not attempt `AUTH`; servers that require auth will reject the
 envelope command.
 
-For production SMTP submission, require TLS explicitly:
+Authenticated connections require TLS by default from 0.8.0. For production
+SMTP submission, specify the required mode explicitly:
 
 ```ts
 const config = {
@@ -118,6 +120,7 @@ const receipt = await EdgeMailer.send(
     port: 587,
     secure: false,
     startTls: true,
+    tlsPolicy: 'require-starttls',
     credentials: {
       username: 'sender@example.com',
       accessToken: env.SMTP_XOAUTH2_ACCESS_TOKEN,
@@ -198,8 +201,8 @@ re-enabled for consumer mailboxes.
 
 #### Spam Placement
 
-Passing SMTP authentication (SPF, DKIM, DMARC) is necessary but **not
-sufficient** for inbox delivery. Gmail, Outlook, and other providers weigh many
+SMTP AUTH logs into a submission server. SPF, DKIM, and DMARC concern sender
+and domain authentication. None of these mechanisms guarantees inbox delivery. Gmail, Outlook, and other providers weigh many
 signals beyond authentication, including sender reputation, domain age, sending
 patterns, content, and recipient engagement. A message accepted by the SMTP
 server may still land in the spam folder or be silently dropped.
@@ -234,8 +237,10 @@ const results = await EdgeMailer.sendBatch(config, emails, {
 })
 ```
 
-When `continueOnError` is true, a failed message is followed by `RSET` before
-the next message is attempted on the same SMTP session.
+When `continueOnError` is true, a failed message is followed by `RSET` if the
+session is still usable. Connection failures close the session; subsequent
+messages may also fail. If any recipient is rejected, the message body is not
+submitted, even when other recipients accepted the envelope.
 
 Use a bounded pool when one invocation needs concurrent or repeated SMTP sends:
 
@@ -462,7 +467,9 @@ await EdgeMailer.send(config, {
 ```
 
 `envelope.size` can be supplied when an upstream system already knows the DATA
-size. Otherwise the client computes `SIZE` from the encoded message it sends.
+size before dot-stuffing and the final SMTP terminator. Otherwise the client
+computes `SIZE` from the MIME message. The computed size is checked against the
+server limit even when an override is supplied.
 
 ## DSN Options
 
@@ -525,7 +532,9 @@ try {
 ```
 
 Use `responseCode` and `enhancedStatusCode` for provider-specific routing, and
-use `transient` for coarse retry decisions.
+use the stage, reason, and retry hint together. A missing final DATA reply is
+`delivery_unknown`: the server may already have accepted the message. Reconcile
+the attempt before retrying. See [USE-CASES.md](USE-CASES.md) for queue guidance.
 
 ## SMTP Core Verification
 

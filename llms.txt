@@ -43,6 +43,9 @@ Production defaults:
   Use Edge Mailer for SMTP infrastructure, SMTP/XOAUTH2 fallback, and observable
   edge-compatible submission.
 - Do not put SMTP credentials in client apps or public logs.
+- HTTP sample endpoints require `SAMPLE_SEND_TOKEN`; missing tokens deny access.
+- Treat `reason: 'delivery_unknown'` as ambiguous acceptance, not an automatic retry.
+- Use bare mailbox addresses and single-line header values; control characters are rejected.
 
 Non-goals:
 

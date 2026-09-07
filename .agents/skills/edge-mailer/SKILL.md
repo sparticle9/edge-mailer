@@ -22,7 +22,8 @@ Cloudflare Workers and Deno.
 - Pass an `AbortSignal` from request, queue, cron, or agent cancellation paths.
 - Use `probe(config)` before onboarding a new SMTP provider.
 - Use structured `SMTPError.reason`, `retryHint`, and `nextAction` instead of
-  parsing error strings.
+  parsing error strings. Reconcile `delivery_unknown` before retrying.
+- Keep sample tokens on the server; HTTP samples deny requests when no token is configured.
 
 ## Boundaries
 
