@@ -1,0 +1,41 @@
+name: Deploy cloudflare sample
+
+on:
+  workflow_dispatch:
+    inputs:
+      send_test_email:
+        description: Send exactly one test email to the configured SMTP_TO recipient
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-cloudflare-sample
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: v2.x
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:deploy
+      - name: Deploy and verify
+        env:
+          EDGE_MAILER_DEPLOY_CONFIG: ${{ secrets.EDGE_MAILER_CLOUDFLARE_DEPLOY }}
+          SEND_TEST_EMAIL: ${{ inputs.send_test_email }}
+        run: node scripts/deploy/run.mjs cloudflare
