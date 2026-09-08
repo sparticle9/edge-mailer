@@ -4,6 +4,12 @@ Deno sample for `edge-mailer/deno` using `Deno.connect`,
 `Deno.connectTls`, and `Deno.startTls`. It runs locally with Deno CLI and can be
 deployed to Deno Deploy v2.
 
+## GitHub Actions deployment
+
+For a repeatable `.env.*` → GitHub secret → deployment flow, use the
+[shared deployment guide](../deploy). Setup requires no GitHub settings-page
+entry. The workflows check health/auth by default; sending one test email is opt-in.
+
 ## Env
 
 Start from the root `env.example` and copy the sections you need into a local

@@ -61,6 +61,11 @@ Set these only when Edge Mailer should sign before SMTP delivery. If your SMTP
 provider manages DKIM, it keeps the private key and gives you only the DNS TXT
 public key (`p=...`); leave `DKIM_PRIVATE_KEY` unset.
 
+## GitHub Actions deployment
+
+[Deploy either SMTP sample from an explicit `.env.*` file](deploy), with one
+CLI upload and a manual workflow run. Live SMTP sending is an optional checkbox.
+
 ## Application starters (0.8.5)
 
 - [Contact form](contact-form): browser UI, fixed recipient/sender, validated

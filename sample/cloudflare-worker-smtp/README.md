@@ -4,6 +4,12 @@ Cloudflare Workers sample for `edge-mailer/cloudflare` using
 `cloudflare:sockets`. It sends through real SMTP on `587` STARTTLS or `465`
 implicit TLS.
 
+## GitHub Actions deployment
+
+For a repeatable `.env.*` → GitHub secret → deployment flow, use the
+[shared deployment guide](../deploy). Setup requires no GitHub settings-page
+entry. The workflows check health/auth by default; sending one test email is opt-in.
+
 ## Env
 
 Start from the root `env.example` and copy the sections you need into a local
